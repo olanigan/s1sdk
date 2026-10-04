@@ -1,0 +1,62 @@
+{
+  "name": "s1sdk",
+  "version": "0.0.3",
+  "description": "Zero-overhead System-1 decision client for discrete token/logit routing, calibrated probabilities, and least-cost execution",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "publishConfig": {
+    "access": "public"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./providers": {
+      "types": "./dist/providers/index.d.ts",
+      "import": "./dist/providers/index.js",
+      "require": "./dist/providers/index.cjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/olanigan/s1sdk.git"
+  },
+  "homepage": "https://github.com/olanigan/s1sdk#readme",
+  "bugs": {
+    "url": "https://github.com/olanigan/s1sdk/issues"
+  },
+  "files": [
+    "dist",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc && bun build src/index.ts --outfile dist/index.cjs --format cjs && bun build src/providers/index.ts --outfile dist/providers/index.cjs --format cjs",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^22.13.0",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  },
+  "keywords": [
+    "jev",
+    "system-1",
+    "typesafe-ai",
+    "finops",
+    "decision-router",
+    "cloudflare-workers-ai",
+    "openrouter"
+  ],
+  "author": "Homestead Labs",
+  "license": "Apache-2.0"
+}
