@@ -38,11 +38,11 @@ export class OpenRouterProvider extends JevProviderBase {
     if (typeof apiKeyOrConfig === 'string') {
       this.apiKey = apiKeyOrConfig;
       this.endpoint = endpoint || 'https://openrouter.ai/api/alpha/decisions';
-      this.model = model || 'typesafe/jev-latest';
+      this.model = model || 'typesafe/jev-1.13';
     } else {
       this.apiKey = apiKeyOrConfig.apiKey || '';
       this.endpoint = apiKeyOrConfig.endpoint || 'https://openrouter.ai/api/alpha/decisions';
-      this.model = apiKeyOrConfig.model || 'typesafe/jev-latest';
+      this.model = apiKeyOrConfig.model || 'typesafe/jev-1.13';
     }
   }
 

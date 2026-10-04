@@ -38,11 +38,11 @@ export class TypeSafeProvider extends JevProviderBase {
     if (typeof apiKeyOrConfig === 'string') {
       this.apiKey = apiKeyOrConfig;
       this.endpoint = endpoint || 'https://api.typesafe.ai/v1/systemone';
-      this.model = model || 'jev-1';
+      this.model = model || 'jev-latest';
     } else {
       this.apiKey = apiKeyOrConfig.apiKey || '';
       this.endpoint = apiKeyOrConfig.endpoint || 'https://api.typesafe.ai/v1/systemone';
-      this.model = apiKeyOrConfig.model || 'jev-1';
+      this.model = apiKeyOrConfig.model || 'jev-latest';
     }
   }
 

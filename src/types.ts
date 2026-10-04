@@ -31,6 +31,7 @@ export interface JevScoreQuestion {
   readonly type: 'score';
   readonly instructions: string;
   readonly levels?: readonly (string | number)[];
+  readonly criteria?: readonly (string | number)[];
 }
 
 export type JevQuestion =
@@ -279,7 +280,7 @@ export function score(
   instructions: string,
   levels: readonly (string | number)[] = [1, 2, 3, 4, 5]
 ): JevScoreQuestion {
-  return Object.freeze({ type: 'score', instructions, levels });
+  return Object.freeze({ type: 'score', instructions, levels, criteria: levels });
 }
 
 // ==========================================

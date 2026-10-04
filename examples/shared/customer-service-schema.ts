@@ -42,8 +42,14 @@ export const customerServiceQuestions = {
 
   // 3. score: Ordinal priority tier [1..5]
   priority_level: score(
-    'Assess operational priority from 1 (routine FAQ) to 5 (critical emergency / enterprise incident)',
-    [1, 2, 3, 4, 5]
+    'Assess operational priority from level 1 to level 5',
+    [
+      'Level 1: Routine inquiry or documentation question',
+      'Level 2: Minor account or configuration request',
+      'Level 3: Normal business operations support',
+      'Level 4: High operational impact or degraded service',
+      'Level 5: Critical emergency, financial dispute, or immediate churn threat'
+    ]
   )
 };
 
@@ -98,7 +104,9 @@ export function renderRoutingReceipt(
   const escalationProb = (answers.is_escalation_risk.noul * 100).toFixed(1);
   const dept = answers.target_department.choice;
   const confidence = (answers.target_department.confidence * 100).toFixed(1);
-  const priority = answers.priority_level.score;
+  const priority = typeof answers.priority_level.score === 'number'
+    ? answers.priority_level.score.toFixed(1)
+    : answers.priority_level.score;
 
   console.log('='.repeat(70));
   console.log(`[RECEIPT] Ticket ${ticket.ticketId} (${ticket.customerTier.toUpperCase()})`);
@@ -110,7 +118,7 @@ export function renderRoutingReceipt(
   console.log('-'.repeat(70));
   console.log(`🎯 Target Dept:    ${dept.toUpperCase()} (Confidence: ${confidence}%)`);
   console.log(`🚨 Escalation:     ${escalationProb}% probability`);
-  console.log(`⭐ Priority Level:  ${priority} / 5`);
+  console.log(`⭐ Priority Score: ${priority} / 5.0`);
   console.log('📊 Distribution:');
   for (const [key, prob] of Object.entries(answers.target_department.probabilities)) {
     const bar = '█'.repeat(Math.round(prob * 20));

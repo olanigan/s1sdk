@@ -8,12 +8,39 @@
  *   bun run examples/02-openrouter-customer-service.ts
  */
 
+import fs from 'node:fs';
+import path from 'node:path';
 import { S1Client } from '../src/index.js';
 import {
   customerServiceQuestions,
   sampleTickets,
   renderRoutingReceipt
 } from './shared/customer-service-schema.js';
+
+// Auto-load .env if present in current or parent directories
+function loadEnv() {
+  if (process.env.OPENROUTER_API_KEY) return;
+  const candidates = [
+    path.resolve(process.cwd(), '.env'),
+    path.resolve(process.cwd(), '../../.env'),
+    path.resolve(process.cwd(), '../.env')
+  ];
+  for (const f of candidates) {
+    if (fs.existsSync(f)) {
+      const content = fs.readFileSync(f, 'utf8');
+      for (const line of content.split('\n')) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) continue;
+        const [k, ...v] = trimmed.split('=');
+        if (k && v.length > 0 && !process.env[k.trim()]) {
+          process.env[k.trim()] = v.join('=').trim().replace(/^["']|["']$/g, '');
+        }
+      }
+      break;
+    }
+  }
+}
+loadEnv();
 
 async function main() {
   const apiKey = process.env.OPENROUTER_API_KEY;
@@ -28,8 +55,8 @@ async function main() {
   const client = new S1Client({
     provider: 'openrouter',
     apiKey: apiKey || '',
-    model: 'typesafe/jev-latest',
-    timeoutMs: 5_000,
+    model: 'typesafe/jev-1.13',
+    timeoutMs: 10_000,
     fallbackToMock: true // Degrade gracefully to MockEngine if remote credentials are missing or upstream is offline
   });
 
