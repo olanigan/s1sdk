@@ -1,7 +1,6 @@
 # `s1sdk`
 
-> **Zero-overhead TypeScript/JavaScript client for System-1 discrete decision routing.**  
-> Governed by [SPEC-001 (Core Client Architecture)](https://github.com/homestead-labs/sovereign-finops/blob/main/docs/jevops/SPECS/SPEC-001-jev-sdk-core-client.md) and [ADR-001 (Modular Decoupling)](https://github.com/homestead-labs/sovereign-finops/blob/main/docs/jevops/ADRS/ADR-001-modular-decoupling-jevsdk-and-jevops.md).
+> **Zero-overhead TypeScript/JavaScript client for System-1 discrete decision routing.**
 
 [![npm version](https://img.shields.io/npm/v/s1sdk.svg)](https://www.npmjs.com/package/s1sdk)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
