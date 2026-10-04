@@ -382,9 +382,18 @@ describe('Jev-SDK Core Architecture & Primitives', () => {
   // ==========================================
   describe('Polymorphic Provider Initialization', () => {
     it('initializes MockEngine by default when no credentials provided', () => {
-      const client = new JevClient();
-      expect(client.provider).toBe('mock-engine');
-      expect(client.providerInstance).toBeInstanceOf(MockEngine);
+      const origOr = process.env.OPENROUTER_API_KEY;
+      const origTs = process.env.TYPESAFE_API_KEY;
+      delete process.env.OPENROUTER_API_KEY;
+      delete process.env.TYPESAFE_API_KEY;
+      try {
+        const client = new JevClient();
+        expect(client.provider).toBe('mock-engine');
+        expect(client.providerInstance).toBeInstanceOf(MockEngine);
+      } finally {
+        if (origOr !== undefined) process.env.OPENROUTER_API_KEY = origOr;
+        if (origTs !== undefined) process.env.TYPESAFE_API_KEY = origTs;
+      }
     });
 
     it('initializes CloudflareWorkerProvider when aiBinding is passed', () => {
