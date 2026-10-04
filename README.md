@@ -8,7 +8,7 @@
 [![Release Status](https://img.shields.io/badge/status-experimental--alpha-orange.svg)](#)
 
 > [!WARNING]
-> **EXPERIMENTAL DEVELOPER PREVIEW (v0.1.0) — NOT FOR PRODUCTION USE**  
+> **EXPERIMENTAL DEVELOPER PREVIEW (v0.1.1) — NOT FOR PRODUCTION USE**  
 > `s1sdk` is currently an experimental developer preview undergoing active protocol and architecture development. Wire specifications, model identifiers, and provider bindings are subject to breaking changes. **Do NOT deploy this release in mission-critical or unmonitored production environments.**
 
 ---
@@ -50,11 +50,14 @@ import { S1Client, noul, choice, score } from 's1sdk';
 
 const s1 = new S1Client();
 
-// 1. noul: Binary calibrated probability [0.0, 1.0] (e.g., safety, truth likelihood)
+// 1. noul: Binary calibrated probability [0.0, 1.0] (with optional true/false criteria)
 const safetyCheck = await s1.decide({
   state: 'rm -rf /var/log/*',
   questions: {
-    is_malicious: noul('Check if the bash command is destructive or unauthorized')
+    is_malicious: noul('Check if the bash command is destructive or unauthorized', {
+      true: 'Destructive system command',
+      false: 'Benign standard operation'
+    })
   }
 });
 console.log(safetyCheck.answers.is_malicious.noul); // 0.9600
@@ -91,14 +94,16 @@ console.log(qualityEvaluation.answers.faithfulness.score); // 4
 `s1sdk` dynamically adapts to its host environment:
 
 ### In-Process Cloudflare Workers AI (`env.AI`)
+Supports `@cf/cloudflare/clef-flash` (default fast hot-path, 38.8ms), `@cf/cloudflare/clef` (27B), and `typesafe/jev`:
+
 ```typescript
-import { S1Client } from 's1sdk';
+import { S1Client, CLOUDFLARE_MODELS } from 's1sdk';
 
 export default {
   async fetch(req: Request, env: Env) {
     const s1 = new S1Client({
       aiBinding: env.AI,
-      model: '@cf/typesafe/jev'
+      model: CLOUDFLARE_MODELS.CLEF_FLASH // '@cf/cloudflare/clef-flash'
     });
 
     const res = await s1.decide({ ... });

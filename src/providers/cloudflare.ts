@@ -12,6 +12,7 @@ import {
   type JevDecisionResponse,
   type JevExecutionOptions,
   type InferJevAnswer,
+  CLOUDFLARE_MODELS,
   JevProviderError
 } from '../types.js';
 
@@ -25,6 +26,64 @@ export interface CloudflareWorkerProviderConfig {
   readonly fallbackProvider?: JevProviderBase;
 }
 
+/**
+ * Normalizes user-specified model strings to Cloudflare Workers AI catalog identifiers
+ * and determines if the payload requires an internal model selector (such as Clef).
+ */
+export function normalizeCloudflareModel(model: string): {
+  bindingModel: string;
+  payloadModel?: 'clef' | 'clef-flash';
+} {
+  const trimmed = model.trim();
+  if (trimmed === 'clef' || trimmed === '@cf/cloudflare/clef') {
+    return { bindingModel: CLOUDFLARE_MODELS.CLEF, payloadModel: 'clef' };
+  }
+  if (trimmed === 'clef-flash' || trimmed === '@cf/cloudflare/clef-flash') {
+    return { bindingModel: CLOUDFLARE_MODELS.CLEF_FLASH, payloadModel: 'clef-flash' };
+  }
+  if (trimmed === 'jev' || trimmed === 'typesafe/jev' || trimmed === '@cf/typesafe/jev') {
+    return { bindingModel: CLOUDFLARE_MODELS.JEV };
+  }
+  const isClef = trimmed.includes('clef');
+  return {
+    bindingModel: trimmed,
+    payloadModel: isClef ? (trimmed.includes('flash') ? 'clef-flash' : 'clef') : undefined
+  };
+}
+
+/**
+ * Strips non-schema properties (such as redundant `levels` on score)
+ * to satisfy Cloudflare Workers AI's strict additionalProperties: false schema validation.
+ */
+export function sanitizeQuestionsForCloudflare(
+  questions: Record<string, JevQuestion>
+): Record<string, any> {
+  const sanitized: Record<string, any> = {};
+  for (const [key, q] of Object.entries(questions)) {
+    if (q.type === 'noul') {
+      sanitized[key] = q.criteria
+        ? { type: 'noul', instructions: q.instructions, criteria: q.criteria }
+        : { type: 'noul', instructions: q.instructions };
+    } else if (q.type === 'choice') {
+      sanitized[key] = {
+        type: 'choice',
+        instructions: q.instructions,
+        criteria: q.criteria
+      };
+    } else if (q.type === 'score') {
+      const criteria = q.criteria || q.levels || [1, 2, 3, 4, 5];
+      sanitized[key] = {
+        type: 'score',
+        instructions: q.instructions,
+        criteria
+      };
+    } else {
+      sanitized[key] = q;
+    }
+  }
+  return sanitized;
+}
+
 export class CloudflareWorkerProvider extends JevProviderBase {
   readonly name = 'Cloudflare Workers AI';
   readonly providerId = 'cloudflare-workers-ai';
@@ -35,7 +94,7 @@ export class CloudflareWorkerProvider extends JevProviderBase {
 
   constructor(
     aiBindingOrConfig?: CloudflareAiBinding | CloudflareWorkerProviderConfig,
-    model = '@cf/typesafe/jev'
+    model: string = CLOUDFLARE_MODELS.CLEF_FLASH
   ) {
     super();
     if (aiBindingOrConfig && 'run' in aiBindingOrConfig && typeof (aiBindingOrConfig as any).run === 'function') {
@@ -56,14 +115,25 @@ export class CloudflareWorkerProvider extends JevProviderBase {
     options?: JevExecutionOptions
   ): Promise<JevDecisionResponse<TQuestions>> {
     const startTime = performance.now();
-    const effectiveModel = request.model || options?.model || this.model;
+    const rawModel = request.model || options?.model || this.model;
+    const { bindingModel, payloadModel } = normalizeCloudflareModel(rawModel);
 
     if (this.aiBinding && typeof this.aiBinding.run === 'function') {
       try {
-        const result = await this.aiBinding.run(effectiveModel, {
+        const payload: Record<string, any> = {
           state: request.state,
-          questions: request.questions
-        });
+          questions: sanitizeQuestionsForCloudflare(request.questions)
+        };
+
+        if (payloadModel) {
+          payload.model = payloadModel;
+        }
+
+        if (request.images && Array.isArray(request.images) && request.images.length > 0) {
+          payload.images = request.images;
+        }
+
+        const result = await this.aiBinding.run(bindingModel, payload);
 
         if (result?.error) {
           throw new JevProviderError(
@@ -87,7 +157,7 @@ export class CloudflareWorkerProvider extends JevProviderBase {
           latency_ms: elapsed,
           providerUsed: this.providerId,
           provider: this.providerId,
-          modelUsed: effectiveModel,
+          modelUsed: bindingModel,
           isFallback: false,
           usage: {
             inputTokens,

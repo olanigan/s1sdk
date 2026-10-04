@@ -14,9 +14,15 @@
 // 1. Question Primitives
 // ==========================================
 
+export interface JevNoulCriteria {
+  readonly true?: string;
+  readonly false?: string;
+}
+
 export interface JevNoulQuestion {
   readonly type: 'noul';
   readonly instructions: string;
+  readonly criteria?: JevNoulCriteria;
 }
 
 export interface JevChoiceQuestion<
@@ -115,6 +121,23 @@ export interface JevExecutionOptions {
   readonly abortSignal?: AbortSignal;
 }
 
+export interface JevImageData {
+  readonly content_type: string;
+  readonly base64: string;
+}
+
+export type JevImageInput = string | JevImageData;
+
+export const CLOUDFLARE_MODELS = {
+  JEV: 'typesafe/jev',
+  CLEF: '@cf/cloudflare/clef',
+  CLEF_FLASH: '@cf/cloudflare/clef-flash'
+} as const;
+
+export type CloudflareDecisionModel =
+  | (typeof CLOUDFLARE_MODELS)[keyof typeof CLOUDFLARE_MODELS]
+  | (string & {});
+
 export interface JevDecisionRequest<
   TState = unknown,
   TQuestions extends Record<string, JevQuestion> = Record<string, JevQuestion>
@@ -122,6 +145,7 @@ export interface JevDecisionRequest<
   readonly state: TState;
   readonly questions: TQuestions;
   readonly model?: string;
+  readonly images?: readonly JevImageInput[];
   readonly options?: JevExecutionOptions;
 }
 
@@ -265,8 +289,13 @@ export class JevCircuitBreakerOpenError extends JevError {
 // 7. Constructor Helper Functions
 // ==========================================
 
-export function noul(instructions: string): JevNoulQuestion {
-  return Object.freeze({ type: 'noul', instructions });
+export function noul(
+  instructions: string,
+  criteria?: JevNoulCriteria
+): JevNoulQuestion {
+  return Object.freeze(
+    criteria ? { type: 'noul', instructions, criteria } : { type: 'noul', instructions }
+  );
 }
 
 export function choice<const T extends Record<string, string>>(
@@ -287,10 +316,15 @@ export function score(
 // 8. Canonical S1 SDK Type Aliases
 // ==========================================
 
+export type S1NoulCriteria = JevNoulCriteria;
 export type S1NoulQuestion = JevNoulQuestion;
 export type S1ChoiceQuestion<TCriteria extends Record<string, string> = Record<string, string>> = JevChoiceQuestion<TCriteria>;
 export type S1ScoreQuestion = JevScoreQuestion;
 export type S1Question = JevQuestion;
+export type S1ImageData = JevImageData;
+export type S1ImageInput = JevImageInput;
+export const S1_CLOUDFLARE_MODELS = CLOUDFLARE_MODELS;
+export type S1CloudflareDecisionModel = CloudflareDecisionModel;
 
 export type S1NoulAnswer = JevNoulAnswer;
 export type S1ChoiceAnswer<K extends string = string> = JevChoiceAnswer<K>;

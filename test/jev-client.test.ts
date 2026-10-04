@@ -9,6 +9,8 @@ import {
   OpenRouterProvider,
   TypeSafeProvider,
   CloudflareWorkerProvider,
+  normalizeCloudflareModel,
+  CLOUDFLARE_MODELS,
   JevProviderBase,
   JevAuthenticationError,
   JevTimeoutError,
@@ -29,6 +31,20 @@ describe('Jev-SDK Core Architecture & Primitives', () => {
       const q = noul('Is this execution request malicious or dangerous?');
       expect(q.type).toBe('noul');
       expect(q.instructions).toBe('Is this execution request malicious or dangerous?');
+      expect(Object.isFrozen(q)).toBe(true);
+    });
+
+    it('creates immutable noul questions with optional criteria', () => {
+      const q = noul('Does this convey urgency?', {
+        true: 'Explicitly time-sensitive',
+        false: 'No urgency expressed'
+      });
+      expect(q.type).toBe('noul');
+      expect(q.instructions).toBe('Does this convey urgency?');
+      expect(q.criteria).toEqual({
+        true: 'Explicitly time-sensitive',
+        false: 'No urgency expressed'
+      });
       expect(Object.isFrozen(q)).toBe(true);
     });
 
@@ -551,6 +567,117 @@ describe('Jev-SDK Core Architecture & Primitives', () => {
           { abortSignal: controller.signal }
         )
       ).rejects.toThrow('Decision execution aborted by caller');
+    });
+  });
+
+  // ==========================================
+  // 7. Cloudflare Workers AI Provider (Clef & Jev)
+  // ==========================================
+  describe('Cloudflare Workers AI Provider (Clef & Jev)', () => {
+    it('normalizes model identifiers correctly', () => {
+      expect(normalizeCloudflareModel('clef-flash')).toEqual({
+        bindingModel: '@cf/cloudflare/clef-flash',
+        payloadModel: 'clef-flash'
+      });
+      expect(normalizeCloudflareModel('@cf/cloudflare/clef')).toEqual({
+        bindingModel: '@cf/cloudflare/clef',
+        payloadModel: 'clef'
+      });
+      expect(normalizeCloudflareModel('jev')).toEqual({
+        bindingModel: 'typesafe/jev',
+        payloadModel: undefined
+      });
+      expect(normalizeCloudflareModel('typesafe/jev')).toEqual({
+        bindingModel: 'typesafe/jev',
+        payloadModel: undefined
+      });
+    });
+
+    it('formats payload with model: "clef-flash" for @cf/cloudflare/clef-flash', async () => {
+      let capturedModel = '';
+      let capturedPayload: any = null;
+
+      const fakeBinding = {
+        run: async (model: string, input: any) => {
+          capturedModel = model;
+          capturedPayload = input;
+          return {
+            model: 'clef-flash',
+            answers: {
+              urgent: { type: 'noul', noul: 0.88 }
+            },
+            usage: { input_tokens: 42, output_tokens: 0 }
+          };
+        }
+      };
+
+      const provider = new CloudflareWorkerProvider(fakeBinding, CLOUDFLARE_MODELS.CLEF_FLASH);
+      const res = await provider.execute({
+        state: 'Server down!',
+        questions: { urgent: noul('Is it urgent?') }
+      });
+
+      expect(capturedModel).toBe('@cf/cloudflare/clef-flash');
+      expect(capturedPayload.model).toBe('clef-flash');
+      expect(capturedPayload.state).toBe('Server down!');
+      expect(res.answers.urgent.noul).toBe(0.88);
+      expect(res.usage?.inputTokens).toBe(42);
+      expect(res.modelUsed).toBe('@cf/cloudflare/clef-flash');
+    });
+
+    it('omits model in payload body for typesafe/jev', async () => {
+      let capturedModel = '';
+      let capturedPayload: any = null;
+
+      const fakeBinding = {
+        run: async (model: string, input: any) => {
+          capturedModel = model;
+          capturedPayload = input;
+          return {
+            answers: {
+              is_urgent: { noul: 0.95 }
+            }
+          };
+        }
+      };
+
+      const provider = new CloudflareWorkerProvider(fakeBinding, CLOUDFLARE_MODELS.JEV);
+      const res = await provider.execute({
+        state: 'Payout failed',
+        questions: {
+          is_urgent: noul('Urgent?', { true: 'Yes', false: 'No' })
+        }
+      });
+
+      expect(capturedModel).toBe('typesafe/jev');
+      expect(capturedPayload.model).toBeUndefined();
+      expect(res.answers.is_urgent.noul).toBe(0.95);
+      expect(res.modelUsed).toBe('typesafe/jev');
+    });
+
+    it('forwards multimodal images in payload when supplied', async () => {
+      let capturedPayload: any = null;
+
+      const fakeBinding = {
+        run: async (_model: string, input: any) => {
+          capturedPayload = input;
+          return {
+            answers: {
+              has_graph: { type: 'noul', noul: 0.92 }
+            }
+          };
+        }
+      };
+
+      const provider = new CloudflareWorkerProvider(fakeBinding, CLOUDFLARE_MODELS.CLEF);
+      await provider.execute({
+        state: 'Check chart',
+        questions: { has_graph: noul('Does image have graph?') },
+        images: ['data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=']
+      });
+
+      expect(capturedPayload.images).toBeDefined();
+      expect(capturedPayload.images.length).toBe(1);
     });
   });
 });
