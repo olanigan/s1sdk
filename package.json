@@ -40,7 +40,10 @@
     "build": "tsc && bun build src/index.ts --outfile dist/index.cjs --format cjs && bun build src/providers/index.ts --outfile dist/providers/index.cjs --format cjs",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "example:mock": "bun run examples/04-offline-fallback-resilience.ts",
+    "example:typesafe": "bun run examples/01-typesafe-customer-service.ts",
+    "example:openrouter": "bun run examples/02-openrouter-customer-service.ts"
   },
   "dependencies": {},
   "devDependencies": {

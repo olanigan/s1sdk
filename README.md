@@ -184,6 +184,22 @@ For existing applications migrating from `jev-sdk`:
 
 ---
 
-## 8. License
+## 8. Production Examples
+
+Explore the complete multi-provider customer service routing application in [`examples/`](./examples):
+
+* [**01-typesafe-customer-service.ts**](./examples/01-typesafe-customer-service.ts): Official TypeSafe AI REST APIs
+* [**02-openrouter-customer-service.ts**](./examples/02-openrouter-customer-service.ts): OpenRouter Decisions API
+* [**03-cloudflare-worker-customer-service/**](./examples/03-cloudflare-worker-customer-service): Sub-15ms edge routing via `env.AI` binding
+* [**04-offline-fallback-resilience.ts**](./examples/04-offline-fallback-resilience.ts): Zero-credential air-gapped simulation & failover
+
+Run the zero-credential offline demo immediately:
+```bash
+bun run example:mock
+```
+
+---
+
+## 9. License
 
 Apache-2.0 © Homestead Labs
