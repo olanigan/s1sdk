@@ -6,6 +6,11 @@
 [![npm version](https://img.shields.io/npm/v/s1sdk.svg)](https://www.npmjs.com/package/s1sdk)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Dependencies](https://img.shields.io/badge/dependencies-0-brightgreen.svg)](#zero-dependencies)
+[![Release Status](https://img.shields.io/badge/status-experimental--alpha-orange.svg)](#)
+
+> [!WARNING]
+> **EXPERIMENTAL DEVELOPER PREVIEW (v0.1.0) — NOT FOR PRODUCTION USE**  
+> `s1sdk` is currently an experimental developer preview undergoing active protocol and architecture development. Wire specifications, model identifiers, and provider bindings are subject to breaking changes. **Do NOT deploy this release in mission-critical or unmonitored production environments.**
 
 ---
 

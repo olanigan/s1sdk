@@ -73,7 +73,7 @@ export class TypeSafeProvider extends JevProviderBase {
         headers: {
           Authorization: `Bearer ${this.apiKey}`,
           'Content-Type': 'application/json',
-          'X-Client': 's1sdk/0.0.3'
+          'X-Client': 's1sdk/0.1.0'
         },
         body: JSON.stringify(payload),
         signal
