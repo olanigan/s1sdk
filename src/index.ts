@@ -33,11 +33,13 @@ import {
   OpenRouterProvider,
   TypeSafeProvider,
   CloudflareWorkerProvider,
+  HomesteadProvider,
+  OllamaProvider,
   type CloudflareAiBinding
 } from './providers/index.js';
 
 export interface S1ClientOptions {
-  /** Target provider mode ('auto', 'mock', 'openrouter', 'typesafe', 'cloudflare') */
+  /** Target provider mode ('auto', 'mock', 'openrouter', 'typesafe', 'cloudflare', 'homestead', 'ollama', 'local') */
   readonly provider?: JevProviderType;
   /** Explicit custom provider instance */
   readonly providerInstance?: JevProviderBase;
@@ -49,6 +51,8 @@ export interface S1ClientOptions {
   readonly model?: string;
   /** Cloudflare Workers AI env.AI in-process binding */
   readonly aiBinding?: CloudflareAiBinding;
+  /** Ollama / Homestead daemon keep_alive duration (e.g. '5m', '1h', -1) */
+  readonly keepAlive?: string | number;
   /** Execution timeout in milliseconds (default: 10,000ms) */
   readonly timeoutMs?: number;
   /** Max retries for retryable network faults (default: 0) */
@@ -98,6 +102,11 @@ export class S1Client {
     const envProcess = typeof process !== 'undefined' ? process : undefined;
     const envOpenRouterKey = envProcess?.env?.OPENROUTER_API_KEY;
     const envTypeSafeKey = envProcess?.env?.TYPESAFE_API_KEY;
+    const envHomesteadUrl =
+      envProcess?.env?.HOMESTEAD_API_URL ||
+      envProcess?.env?.HOMESTEAD_S1_URL ||
+      envProcess?.env?.HOMESTEAD_ENDPOINT;
+    const envOllamaHost = envProcess?.env?.OLLAMA_HOST;
 
     const requested = options.provider;
 
@@ -114,6 +123,21 @@ export class S1Client {
         case 'cloudflare-worker':
         case 'cloudflare-workers-ai':
           return new CloudflareWorkerProvider(options.aiBinding, options.model);
+        case 'homestead':
+        case 'local':
+          return new HomesteadProvider({
+            apiKey: options.apiKey,
+            endpoint: options.endpoint,
+            model: options.model,
+            keepAlive: options.keepAlive
+          });
+        case 'ollama':
+          return new OllamaProvider({
+            apiKey: options.apiKey,
+            endpoint: options.endpoint,
+            model: options.model,
+            keepAlive: options.keepAlive
+          });
         default:
           return new MockEngine();
       }
@@ -130,6 +154,24 @@ export class S1Client {
 
     if (envTypeSafeKey) {
       return new TypeSafeProvider(envTypeSafeKey, options.endpoint, options.model);
+    }
+
+    if (envHomesteadUrl) {
+      return new HomesteadProvider({
+        apiKey: options.apiKey,
+        endpoint: options.endpoint || envHomesteadUrl,
+        model: options.model,
+        keepAlive: options.keepAlive
+      });
+    }
+
+    if (envOllamaHost) {
+      return new OllamaProvider({
+        apiKey: options.apiKey,
+        endpoint: options.endpoint,
+        model: options.model,
+        keepAlive: options.keepAlive
+      });
     }
 
     return new MockEngine();

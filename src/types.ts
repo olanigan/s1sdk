@@ -102,6 +102,9 @@ export type JevProviderType =
   | 'cloudflare'
   | 'cloudflare-worker'
   | 'cloudflare-workers-ai'
+  | 'homestead'
+  | 'ollama'
+  | 'local'
   | 'mock'
   | (string & {});
 
