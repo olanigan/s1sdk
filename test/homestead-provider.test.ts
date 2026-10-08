@@ -29,7 +29,7 @@ describe('Homestead & Ollama System-1 Providers', () => {
       expect(provider.providerId).toBe('homestead');
       expect(provider.name).toBe('Homestead Sovereign S1 Provider');
       expect(provider.getMetadata().supportsLocalExecution).toBe(true);
-      expect(provider.getMetadata().defaultModel).toBe('local');
+      expect(provider.getMetadata().defaultModel).toBe('homerouter-420M');
     });
 
     it('initializes OllamaProvider targeting port 11434 and tev1:0.8b default model', () => {

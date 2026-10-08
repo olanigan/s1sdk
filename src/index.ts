@@ -134,7 +134,7 @@ export class S1Client {
         case 'ollama':
           return new OllamaProvider({
             apiKey: options.apiKey,
-            endpoint: options.endpoint,
+            endpoint: options.endpoint || envOllamaHost,
             model: options.model,
             keepAlive: options.keepAlive
           });
@@ -143,38 +143,31 @@ export class S1Client {
       }
     }
 
-    // Auto-discovery heuristics
+    // Auto-discovery heuristics: explicit client options take priority
     if (options.aiBinding) {
       return new CloudflareWorkerProvider(options.aiBinding, options.model);
     }
 
-    if (options.apiKey || envOpenRouterKey) {
-      return new OpenRouterProvider(options.apiKey || envOpenRouterKey || '', options.endpoint, options.model);
+    if (options.apiKey) {
+      return new OpenRouterProvider(options.apiKey, options.endpoint, options.model);
     }
 
-    if (envTypeSafeKey) {
-      return new TypeSafeProvider(envTypeSafeKey, options.endpoint, options.model);
-    }
-
-    if (envHomesteadUrl) {
-      return new HomesteadProvider({
-        apiKey: options.apiKey,
-        endpoint: options.endpoint || envHomesteadUrl,
-        model: options.model,
-        keepAlive: options.keepAlive
-      });
-    }
-
-    if (envOllamaHost) {
+    if (envOllamaHost && !envHomesteadUrl) {
       return new OllamaProvider({
         apiKey: options.apiKey,
-        endpoint: options.endpoint,
+        endpoint: options.endpoint || envOllamaHost,
         model: options.model,
         keepAlive: options.keepAlive
       });
     }
 
-    return new MockEngine();
+    // Default: Batteries-Included Homestead engine serving homerouter-420M locally
+    return new HomesteadProvider({
+      apiKey: options.apiKey,
+      endpoint: options.endpoint || envHomesteadUrl,
+      model: options.model || 'homerouter-420M',
+      keepAlive: options.keepAlive
+    });
   }
 
   /**
@@ -286,6 +279,85 @@ export class S1Client {
     overrideOptions?: JevExecutionOptions
   ): Promise<JevDecisionResponse<TQuestions>> {
     return this.decide(request, overrideOptions);
+  }
+
+  /**
+   * High-level single-pass intent routing across discrete candidate actions.
+   * Ergonomic batteries-included method for agent tools, workflows, and triage loops.
+   */
+  public async route(
+    state: string | Record<string, unknown>,
+    candidates: readonly string[] | Record<string, string>,
+    options?: JevExecutionOptions & { questionId?: string; prompt?: string }
+  ): Promise<{
+    winner: string;
+    confidence: number;
+    probabilities: Record<string, number>;
+    passedGate: boolean;
+    latencyMs: number;
+    raw: JevDecisionResponse<Record<string, JevQuestion>>;
+  }> {
+    const qId = options?.questionId || 'route';
+    const prompt = options?.prompt || 'Select the most appropriate next action';
+    const criteria: Record<string, string> = Array.isArray(candidates)
+      ? Object.fromEntries(candidates.map((c) => [c, String(c)]))
+      : candidates;
+
+    const response = await this.decide(
+      {
+        state,
+        questions: {
+          [qId]: choice(prompt, criteria)
+        }
+      },
+      options
+    );
+
+    const ans = response.answers[qId] as any;
+    const requestedCandidates = Array.isArray(candidates) ? candidates : Object.keys(candidates);
+    const rawProbabilities = (ans?.probabilities ?? {}) as Record<string, number>;
+
+    // Filter and renormalize across requested candidates if returned set is a superset
+    let filteredProbabilities: Record<string, number> = {};
+    let hasMatching = false;
+    for (const c of requestedCandidates) {
+      if (rawProbabilities[c] !== undefined) {
+        filteredProbabilities[c] = rawProbabilities[c];
+        hasMatching = true;
+      }
+    }
+
+    if (hasMatching) {
+      const sum = Object.values(filteredProbabilities).reduce((a, b) => a + b, 0);
+      if (sum > 0) {
+        for (const k of Object.keys(filteredProbabilities)) {
+          filteredProbabilities[k] = Number(((filteredProbabilities[k] ?? 0) / sum).toFixed(4));
+        }
+      }
+    } else {
+      filteredProbabilities = rawProbabilities;
+    }
+
+    let winner = requestedCandidates[0] || 'unknown';
+    let maxP = -1;
+    for (const [k, p] of Object.entries(filteredProbabilities)) {
+      if (p > maxP) {
+        maxP = p;
+        winner = k;
+      }
+    }
+
+    const confidence = maxP >= 0 ? maxP : (typeof ans?.confidence === 'number' ? ans.confidence : 0);
+    const threshold = options?.minConfidence ?? 0.90;
+
+    return {
+      winner,
+      confidence,
+      probabilities: filteredProbabilities,
+      passedGate: confidence >= threshold,
+      latencyMs: response.latencyMs,
+      raw: response
+    };
   }
 
   /**

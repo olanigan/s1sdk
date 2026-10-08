@@ -9,6 +9,7 @@ import {
   OpenRouterProvider,
   TypeSafeProvider,
   CloudflareWorkerProvider,
+  HomesteadProvider,
   normalizeCloudflareModel,
   CLOUDFLARE_MODELS,
   JevProviderBase,
@@ -397,19 +398,25 @@ describe('Jev-SDK Core Architecture & Primitives', () => {
   // 5. Polymorphic Provider Initialization
   // ==========================================
   describe('Polymorphic Provider Initialization', () => {
-    it('initializes MockEngine by default when no credentials provided', () => {
+    it('initializes HomesteadProvider serving homerouter-420M by default (batteries included)', () => {
       const origOr = process.env.OPENROUTER_API_KEY;
       const origTs = process.env.TYPESAFE_API_KEY;
       delete process.env.OPENROUTER_API_KEY;
       delete process.env.TYPESAFE_API_KEY;
       try {
-        const client = new JevClient();
-        expect(client.provider).toBe('mock-engine');
-        expect(client.providerInstance).toBeInstanceOf(MockEngine);
+        const client = new S1Client();
+        expect(client.provider).toBe('homestead');
+        expect(client.providerInstance).toBeInstanceOf(HomesteadProvider);
       } finally {
         if (origOr !== undefined) process.env.OPENROUTER_API_KEY = origOr;
         if (origTs !== undefined) process.env.TYPESAFE_API_KEY = origTs;
       }
+    });
+
+    it('initializes MockEngine when useMock or provider: "mock" is explicitly requested', () => {
+      const client = new S1Client({ useMock: true });
+      expect(client.provider).toBe('mock-engine');
+      expect(client.providerInstance).toBeInstanceOf(MockEngine);
     });
 
     it('initializes CloudflareWorkerProvider when aiBinding is passed', () => {
@@ -485,6 +492,21 @@ describe('Jev-SDK Core Architecture & Primitives', () => {
       const jev = new JevClient({ useMock: true });
       expect(jev).toBeInstanceOf(S1Client);
       expect(jev).toBeInstanceOf(JevClient);
+    });
+
+    it('routes categorical intent in a single call via client.route()', async () => {
+      const s1 = new S1Client({ useMock: true });
+      const decision = await s1.route(
+        'rm -rf / System root wipe requested',
+        ['allow_execution', 'block_and_alert', 'request_human_review'],
+        { minConfidence: 0.85 }
+      );
+      expect(decision.winner).toBeDefined();
+      expect(typeof decision.confidence).toBe('number');
+      expect(decision.confidence).toBeGreaterThan(0);
+      expect(typeof decision.passedGate).toBe('boolean');
+      expect(typeof decision.latencyMs).toBe('number');
+      expect(decision.probabilities).toBeDefined();
     });
   });
 

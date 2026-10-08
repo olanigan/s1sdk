@@ -64,11 +64,11 @@ export class HomesteadProvider extends JevProviderBase {
     if (typeof config === 'string') {
       this.apiKey = config;
       this.endpoint = endpoint || this.detectDefaultEndpoint();
-      this.model = model || 'local';
+      this.model = model || 'homerouter-420M';
     } else {
       this.apiKey = config?.apiKey;
       this.endpoint = config?.endpoint || this.detectDefaultEndpoint();
-      this.model = config?.model || 'local';
+      this.model = config?.model || 'homerouter-420M';
       this.keepAlive = config?.keepAlive;
     }
   }
@@ -82,7 +82,7 @@ export class HomesteadProvider extends JevProviderBase {
     if (envUrl) {
       return envUrl.endsWith('/v1/systemone') ? envUrl : `${envUrl.replace(/\/+$/, '')}/v1/systemone`;
     }
-    return 'http://127.0.0.1:18765/v1/systemone';
+    return 'http://127.0.0.1:8080/v1/systemone';
   }
 
   public async execute<TState, TQuestions extends Record<string, JevQuestion>>(
@@ -113,6 +113,7 @@ export class HomesteadProvider extends JevProviderBase {
 
     const signal = options?.abortSignal;
     let res: Response;
+    const isDefaultPort = this.endpoint.includes(':8080/');
     try {
       res = await fetch(this.endpoint, {
         method: 'POST',
@@ -121,15 +122,37 @@ export class HomesteadProvider extends JevProviderBase {
         signal
       });
     } catch (netErr: any) {
-      if (netErr?.name === 'AbortError' || netErr?.code === 'ETIMEDOUT') {
-        throw new JevTimeoutError(options?.timeoutMs ?? 10_000);
+      if (isDefaultPort) {
+        const altEndpoint = this.endpoint.replace(':8080/', ':18765/');
+        try {
+          res = await fetch(altEndpoint, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(payload),
+            signal
+          });
+        } catch {
+          if (netErr?.name === 'AbortError' || netErr?.code === 'ETIMEDOUT') {
+            throw new JevTimeoutError(options?.timeoutMs ?? 10_000);
+          }
+          throw new JevProviderError(
+            `Homestead S1 daemon connection failed at ${this.endpoint} (and fallback ${altEndpoint}): ${netErr?.message || String(netErr)}. Ensure 'homestead serve homerouter' is running locally.`,
+            503,
+            true,
+            netErr instanceof Error ? netErr : undefined
+          );
+        }
+      } else {
+        if (netErr?.name === 'AbortError' || netErr?.code === 'ETIMEDOUT') {
+          throw new JevTimeoutError(options?.timeoutMs ?? 10_000);
+        }
+        throw new JevProviderError(
+          `Homestead S1 daemon connection failed at ${this.endpoint}: ${netErr?.message || String(netErr)}. Ensure 'homestead serve homerouter' is running locally.`,
+          503,
+          true,
+          netErr instanceof Error ? netErr : undefined
+        );
       }
-      throw new JevProviderError(
-        `Homestead S1 daemon connection failed at ${this.endpoint}: ${netErr?.message || String(netErr)}. Ensure 'homestead serve' or 'ollama serve' is running locally.`,
-        503,
-        true,
-        netErr instanceof Error ? netErr : undefined
-      );
     }
 
     if (!res.ok) {

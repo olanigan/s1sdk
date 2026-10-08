@@ -122,6 +122,8 @@ export interface JevExecutionOptions {
   readonly tags?: Record<string, string>;
   readonly fallbackToMock?: boolean;
   readonly abortSignal?: AbortSignal;
+  /** Minimum calibrated confidence threshold for operational decision gates (e.g. 0.90) */
+  readonly minConfidence?: number;
 }
 
 export interface JevImageData {
