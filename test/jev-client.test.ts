@@ -5,7 +5,6 @@ import {
   noul,
   choice,
   score,
-  MockEngine,
   OpenRouterProvider,
   TypeSafeProvider,
   CloudflareWorkerProvider,
@@ -17,11 +16,82 @@ import {
   JevTimeoutError,
   JevRateLimitError,
   JevProviderError,
+  JevError,
   type JevMiddleware,
   type JevDecisionRequest,
   type JevDecisionResponse,
   type ProviderMetadata
 } from '../src/index.js';
+
+class ContractTestProvider extends JevProviderBase {
+  readonly name = 'Contract Test Provider';
+  readonly providerId = 'contract-test';
+
+  async execute(request: JevDecisionRequest): Promise<JevDecisionResponse<any>> {
+    const answers: Record<string, any> = {};
+    for (const [key, q] of Object.entries(request.questions)) {
+      if (q.type === 'noul') {
+        const isDanger = String(request.state).includes('rm -rf');
+        answers[key] = {
+          noul: isDanger ? 0.99 : 0.01,
+          raw_logit: isDanger ? 4.59 : -4.59
+        };
+      } else if (q.type === 'choice') {
+        const keys = Object.keys(q.criteria);
+        if (keys.length === 0) {
+          answers[key] = {
+            choice: 'default',
+            confidence: 1.0,
+            probabilities: { default: 1.0 }
+          };
+        } else {
+          const selected = keys.includes('terminal')
+            ? 'terminal'
+            : keys.includes('block_and_alert')
+            ? 'block_and_alert'
+            : keys[0];
+          const probs: Record<string, number> = {};
+          keys.forEach((k) => {
+            probs[k] = k === selected ? 0.88 : 0.12 / Math.max(1, keys.length - 1);
+          });
+          const sum = Object.values(probs).reduce((a, b) => a + b, 0);
+          Object.keys(probs).forEach((k) => (probs[k] = Math.round((probs[k] / sum) * 10000) / 10000));
+          answers[key] = {
+            choice: selected,
+            confidence: probs[selected],
+            probabilities: probs
+          };
+        }
+      } else if (q.type === 'score') {
+        answers[key] = {
+          score: 4,
+          confidence: 0.92
+        };
+      }
+    }
+
+    return {
+      answers,
+      latencyMs: 1.0,
+      providerUsed: this.providerId,
+      modelUsed: 'contract-model',
+      isFallback: false
+    };
+  }
+
+  async isHealthy(): Promise<boolean> {
+    return true;
+  }
+
+  getMetadata(): ProviderMetadata {
+    return {
+      providerId: this.providerId,
+      defaultModel: 'contract-model',
+      supportsLocalExecution: true,
+      maxConcurrentRequests: 10
+    };
+  }
+}
 
 describe('Jev-SDK Core Architecture & Primitives', () => {
   // ==========================================
@@ -73,10 +143,10 @@ describe('Jev-SDK Core Architecture & Primitives', () => {
   });
 
   // ==========================================
-  // 2. Mock Engine Determinism & Calibration
+  // 2. Decision Contract & Answer Conformance
   // ==========================================
-  describe('Mock Engine Determinism', () => {
-    const mock = new MockEngine();
+  describe('Decision Contract & Answer Conformance', () => {
+    const testProvider = new ContractTestProvider();
 
     it('identifies dangerous shell commands with high calibrated probability', async () => {
       const dangerousReq: JevDecisionRequest = {
@@ -86,10 +156,10 @@ describe('Jev-SDK Core Architecture & Primitives', () => {
         }
       };
 
-      const res = await mock.execute(dangerousReq);
+      const res = await testProvider.execute(dangerousReq);
       expect(res.answers.is_unsafe.noul).toBeGreaterThanOrEqual(0.95);
       expect(res.answers.is_unsafe.raw_logit).toBeDefined();
-      expect(res.providerUsed).toBe('mock-engine');
+      expect(res.providerUsed).toBe('contract-test');
       expect(res.isFallback).toBe(false);
     });
 
@@ -101,7 +171,7 @@ describe('Jev-SDK Core Architecture & Primitives', () => {
         }
       };
 
-      const res = await mock.execute(benignReq);
+      const res = await testProvider.execute(benignReq);
       expect(res.answers.is_unsafe.noul).toBeLessThanOrEqual(0.05);
     });
 
@@ -118,7 +188,7 @@ describe('Jev-SDK Core Architecture & Primitives', () => {
         }
       };
 
-      const res = await mock.execute(routeReq);
+      const res = await testProvider.execute(routeReq);
       const answer = res.answers.tool;
       expect(answer.choice).toBe('terminal');
       expect(answer.confidence).toBeGreaterThan(0.85);
@@ -135,7 +205,7 @@ describe('Jev-SDK Core Architecture & Primitives', () => {
         }
       };
 
-      const res = await mock.execute(scoreReq);
+      const res = await testProvider.execute(scoreReq);
       expect(res.answers.perf_score.score).toBeGreaterThan(0);
       expect(res.answers.perf_score.confidence).toBeGreaterThan(0.8);
     });
@@ -158,7 +228,7 @@ describe('Jev-SDK Core Architecture & Primitives', () => {
         }
       };
 
-      const client = new JevClient({ useMock: true });
+      const client = new JevClient({ providerInstance: new ContractTestProvider() });
       client.use(testMiddleware);
 
       const res = await client.decide({
@@ -170,7 +240,7 @@ describe('Jev-SDK Core Architecture & Primitives', () => {
 
       expect(events.length).toBe(2);
       expect(events[0]).toMatch(/^before:(s1|jev)_/);
-      expect(events[1]).toBe('after:mock-engine');
+      expect(events[1]).toBe('after:contract-test');
       expect(res.answers.valid).toBeDefined();
     });
 
@@ -187,7 +257,7 @@ describe('Jev-SDK Core Architecture & Primitives', () => {
         }
       };
 
-      const client = new JevClient({ useMock: true });
+      const client = new JevClient({ providerInstance: new ContractTestProvider() });
       client.use(failingMiddleware);
 
       // System-1 inference must NOT crash despite middleware failures
@@ -226,7 +296,7 @@ describe('Jev-SDK Core Architecture & Primitives', () => {
         }
       };
 
-      const client = new JevClient({ useMock: true });
+      const client = new JevClient({ providerInstance: new ContractTestProvider() });
       client.use(cacheMiddleware);
 
       const res = await client.decide({
@@ -261,8 +331,7 @@ describe('Jev-SDK Core Architecture & Primitives', () => {
       }
 
       const client = new JevClient({
-        providerInstance: new FailingProvider(),
-        fallbackToMock: false // Disable default mock fallback to test onError recovery
+        providerInstance: new FailingProvider()
       });
 
       const recoveryMiddleware: JevMiddleware = {
@@ -301,7 +370,7 @@ describe('Jev-SDK Core Architecture & Primitives', () => {
   // 4. Error Handling & Safe Fallback
   // ==========================================
   describe('Error Handling & Safe Fallback', () => {
-    class MockRemoteFailureProvider extends JevProviderBase {
+    class FailingRemoteProvider extends JevProviderBase {
       readonly name = 'Simulated Remote API';
       readonly providerId = 'remote-failing';
       async execute(): Promise<any> {
@@ -320,32 +389,9 @@ describe('Jev-SDK Core Architecture & Primitives', () => {
       }
     }
 
-    it('automatically degrades to MockEngine when remote provider crashes', async () => {
-      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-
+    it('throws JevProviderError transparently when remote provider crashes (no silent degradation)', async () => {
       const client = new JevClient({
-        providerInstance: new MockRemoteFailureProvider(),
-        fallbackToMock: true
-      });
-
-      const res = await client.decide({
-        state: 'User prompt',
-        questions: {
-          test: noul('Test prompt')
-        }
-      });
-
-      expect(res.isFallback).toBe(true);
-      expect(res.providerUsed).toBe('mock-engine-fallback');
-      expect(res.answers.test).toBeDefined();
-
-      consoleWarnSpy.mockRestore();
-    });
-
-    it('throws error when fallbackToMock is disabled', async () => {
-      const client = new JevClient({
-        providerInstance: new MockRemoteFailureProvider(),
-        fallbackToMock: false
+        providerInstance: new FailingRemoteProvider()
       });
 
       await expect(
@@ -356,6 +402,34 @@ describe('Jev-SDK Core Architecture & Primitives', () => {
           }
         })
       ).rejects.toThrow(JevProviderError);
+    });
+
+    it('recovers cleanly via onError middleware hook during upstream failure', async () => {
+      const client = new JevClient({
+        providerInstance: new FailingRemoteProvider()
+      });
+
+      client.use({
+        name: 'failover-middleware',
+        onError: (_ctx, _err) => ({
+          answers: { test: { noul: 0.5 } },
+          latencyMs: 0.1,
+          providerUsed: 'failover-middleware',
+          modelUsed: 'safe-fallback',
+          isFallback: true
+        })
+      });
+
+      const res = await client.decide({
+        state: 'User prompt',
+        questions: {
+          test: noul('Test prompt')
+        }
+      });
+
+      expect(res.isFallback).toBe(true);
+      expect(res.providerUsed).toBe('failover-middleware');
+      expect(res.answers.test.noul).toBe(0.5);
     });
 
     it('enforces execution timeout', async () => {
@@ -381,8 +455,7 @@ describe('Jev-SDK Core Architecture & Primitives', () => {
 
       const client = new JevClient({
         providerInstance: new SlowProvider(),
-        timeoutMs: 25,
-        fallbackToMock: false
+        timeoutMs: 25
       });
 
       await expect(
@@ -413,10 +486,9 @@ describe('Jev-SDK Core Architecture & Primitives', () => {
       }
     });
 
-    it('initializes MockEngine when useMock or provider: "mock" is explicitly requested', () => {
-      const client = new S1Client({ useMock: true });
-      expect(client.provider).toBe('mock-engine');
-      expect(client.providerInstance).toBeInstanceOf(MockEngine);
+    it('throws JevError when unknown provider is explicitly requested', () => {
+      expect(() => new S1Client({ provider: 'mock' as any })).toThrow(JevError);
+      expect(() => new S1Client({ provider: 'unknown-engine' as any })).toThrow(JevError);
     });
 
     it('initializes CloudflareWorkerProvider when aiBinding is passed', () => {
@@ -476,7 +548,7 @@ describe('Jev-SDK Core Architecture & Primitives', () => {
   // ==========================================
   describe('S1Client & Backwards Compatibility', () => {
     it('executes decisions seamlessly using S1Client', async () => {
-      const s1 = new S1Client({ useMock: true });
+      const s1 = new S1Client({ providerInstance: new ContractTestProvider() });
       const res = await s1.decide({
         state: 'test prompt',
         questions: {
@@ -485,17 +557,17 @@ describe('Jev-SDK Core Architecture & Primitives', () => {
       });
       expect(res.answers.safe).toBeDefined();
       expect(typeof res.answers.safe.noul).toBe('number');
-      expect(res.providerUsed).toBe('mock-engine');
+      expect(res.providerUsed).toBe('contract-test');
     });
 
     it('preserves JevClient as subclass/alias of S1Client', () => {
-      const jev = new JevClient({ useMock: true });
+      const jev = new JevClient({ providerInstance: new ContractTestProvider() });
       expect(jev).toBeInstanceOf(S1Client);
       expect(jev).toBeInstanceOf(JevClient);
     });
 
     it('routes categorical intent in a single call via client.route()', async () => {
-      const s1 = new S1Client({ useMock: true });
+      const s1 = new S1Client({ providerInstance: new ContractTestProvider() });
       const decision = await s1.route(
         'rm -rf / System root wipe requested',
         ['allow_execution', 'block_and_alert', 'request_human_review'],
@@ -545,12 +617,28 @@ describe('Jev-SDK Core Architecture & Primitives', () => {
       }
     });
 
-    it('survives circular reference state objects in MockEngine', async () => {
+    it('survives circular reference state objects in provider execution', async () => {
       const circularState: any = { message: 'hello' };
       circularState.self = circularState;
 
-      const mock = new MockEngine();
-      const res = await mock.execute({
+      class EchoProvider extends JevProviderBase {
+        readonly name = 'Echo';
+        readonly providerId = 'echo';
+        async execute(req: JevDecisionRequest): Promise<any> {
+          return {
+            answers: { test: { noul: 0.1 } },
+            latencyMs: 1,
+            providerUsed: this.providerId,
+            modelUsed: 'echo',
+            isFallback: false
+          };
+        }
+        async isHealthy() { return true; }
+        getMetadata() { return { providerId: 'echo', defaultModel: 'echo', supportsLocalExecution: true, maxConcurrentRequests: 1 }; }
+      }
+
+      const client = new S1Client({ providerInstance: new EchoProvider() });
+      const res = await client.decide({
         state: circularState,
         questions: {
           test: noul('Check safety')
@@ -561,25 +649,25 @@ describe('Jev-SDK Core Architecture & Primitives', () => {
       expect(typeof res.answers.test.noul).toBe('number');
     });
 
-    it('handles empty criteria safely without division-by-zero or undefined', async () => {
-      const mock = new MockEngine();
-      const res = await mock.execute({
-        state: 'prompt',
-        questions: {
-          empty: choice('Empty choices', {})
-        }
-      });
-
-      expect(res.answers.empty.choice).toBe('default');
-      expect(res.answers.empty.confidence).toBe(1.0);
-      expect(res.answers.empty.probabilities.default).toBe(1.0);
+    it('handles empty criteria safely in choice question definition', () => {
+      const q = choice('Empty choices', {});
+      expect(q.type).toBe('choice');
+      expect(Object.keys(q.criteria).length).toBe(0);
     });
 
     it('honors pre-aborted AbortSignal', async () => {
       const controller = new AbortController();
       controller.abort();
 
-      const client = new S1Client({ useMock: true });
+      class DummyProvider extends JevProviderBase {
+        readonly name = 'Dummy';
+        readonly providerId = 'dummy';
+        async execute(): Promise<any> { return {} as any; }
+        async isHealthy() { return true; }
+        getMetadata() { return { providerId: 'dummy', defaultModel: 'dummy', supportsLocalExecution: true, maxConcurrentRequests: 1 }; }
+      }
+
+      const client = new S1Client({ providerInstance: new DummyProvider() });
       await expect(
         client.decide(
           {

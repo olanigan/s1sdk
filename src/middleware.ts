@@ -53,7 +53,7 @@ export interface JevMiddleware {
   ): Promise<void | JevDecisionResponse<any>> | void | JevDecisionResponse<any>;
 
   /**
-   * Executed upon successful evaluation by the provider or mock engine.
+   * Executed upon successful evaluation by the active provider.
    * Ideal for non-blocking asynchronous metrics flush (OTel, ClickHouse, logs).
    */
   afterResponse?(

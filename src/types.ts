@@ -7,7 +7,7 @@
  *  1. Cloudflare Workers AI bindings (@cf/typesafe/jev)
  *  2. TypeSafe AI REST APIs (POST https://api.typesafe.ai/v1/systemone)
  *  3. OpenRouter Decisions API (POST https://openrouter.ai/api/alpha/decisions)
- *  4. In-process offline deterministic MockEngine
+ *  4. Homestead / Ollama local silicon runtime
  */
 
 // ==========================================
@@ -105,7 +105,6 @@ export type JevProviderType =
   | 'homestead'
   | 'ollama'
   | 'local'
-  | 'mock'
   | (string & {});
 
 // ==========================================
@@ -120,7 +119,6 @@ export interface JevExecutionOptions {
   readonly tenantId?: string;
   readonly traceId?: string;
   readonly tags?: Record<string, string>;
-  readonly fallbackToMock?: boolean;
   readonly abortSignal?: AbortSignal;
   /** Minimum calibrated confidence threshold for operational decision gates (e.g. 0.90) */
   readonly minConfidence?: number;

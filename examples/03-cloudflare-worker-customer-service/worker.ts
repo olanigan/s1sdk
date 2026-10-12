@@ -55,19 +55,17 @@ export default {
       selectedModel = modelParam;
     }
 
-    // Initialize edge client bridging directly into Workers AI with fallback resilience
+    // Initialize edge client bridging directly into Workers AI
     const client = new S1Client({
       aiBinding: env.AI,
-      model: selectedModel,
-      fallbackToMock: true // Degrade gracefully if AI binding encounters quota or model errors
+      model: selectedModel
     });
 
     // 1. Official TypeSafe Jev Inspiration Demo Endpoint
     if (url.pathname === '/demo/jev') {
       const jevClient = new S1Client({
         aiBinding: env.AI,
-        model: CLOUDFLARE_MODELS.JEV,
-        fallbackToMock: true
+        model: CLOUDFLARE_MODELS.JEV
       });
 
       const decision = await jevClient.decide({
@@ -98,8 +96,7 @@ export default {
     if (url.pathname === '/demo/clef') {
       const clefClient = new S1Client({
         aiBinding: env.AI,
-        model: CLOUDFLARE_MODELS.CLEF,
-        fallbackToMock: true
+        model: CLOUDFLARE_MODELS.CLEF
       });
 
       const decision = await clefClient.decide({

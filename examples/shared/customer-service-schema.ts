@@ -1,6 +1,6 @@
 /**
  * Shared Customer Service Routing Schema & Primitives
- * Wire-compatible across TypeSafe AI, OpenRouter, Cloudflare Workers AI, and MockEngine.
+ * Wire-compatible across TypeSafe AI, OpenRouter, Cloudflare Workers AI, and Homestead.
  */
 
 import {
@@ -114,7 +114,7 @@ export function renderRoutingReceipt(
   console.log('-'.repeat(70));
   console.log(`⚡ Provider:       ${decision.providerUsed} (${decision.modelUsed})`);
   console.log(`⏱️  Latency:        ${decision.latencyMs}ms`);
-  console.log(`🏷️  Fallback:       ${decision.isFallback ? 'YES (Graceful Mock)' : 'NO (Direct Provider)'}`);
+  console.log(`🏷️  Fallback:       ${decision.isFallback ? 'YES (Failover Fallback)' : 'NO (Direct Provider)'}`);
   console.log('-'.repeat(70));
   console.log(`🎯 Target Dept:    ${dept.toUpperCase()} (Confidence: ${confidence}%)`);
   console.log(`🚨 Escalation:     ${escalationProb}% probability`);

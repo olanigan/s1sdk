@@ -132,12 +132,15 @@ const s1 = new S1Client({
 });
 ```
 
-### Air-Gapped Offline Mock Engine
+### Local Silicon / Homestead Engine
 ```typescript
 import { S1Client } from 's1sdk';
 
-// Instant evaluation (<2ms) with zero network requests
-const s1 = new S1Client({ useMock: true });
+// Zero-runtime-dependency local execution via Homestead daemon (<1.2ms)
+const s1 = new S1Client({
+  provider: 'homestead',
+  model: 'homerouter-420M'
+});
 ```
 
 ---
@@ -168,16 +171,28 @@ s1.use(telemetryPlugin);
 
 ---
 
-## 6. Zero-Failure Fallback Guarantee
+## 6. Transparent Error Handling & Middleware Failover
 
-If remote APIs fail (HTTP 502, network partition, rate limits exhausted):
-1. The client automatically catches the error and evaluates the decision locally using `MockEngine`.
-2. The response is stamped with `isFallback: true` and `providerUsed: 'mock-engine-fallback'`.
-3. Execution on your critical path continues uninterrupted.
+`s1sdk` eliminates silent degradation. If remote providers fail (HTTP 502, network partition, rate limits exhausted), `client.decide()` throws `JevProviderError` or `JevTimeoutError` directly and transparently.
 
-To disable fallback and rethrow errors:
+To handle outages gracefully without crashing the critical path, use `onError` middleware:
+
 ```typescript
-const s1 = new S1Client({ fallbackToMock: false });
+s1.use({
+  name: 'resilience-fallback',
+  onError(ctx, error) {
+    console.warn(`[Failover] Upstream failure: ${error.message}. Returning cached fallback.`);
+    return {
+      answers: {
+        department: { choice: 'general_inquiry', confidence: 1.0, probabilities: { general_inquiry: 1.0 } }
+      },
+      latencyMs: 0.1,
+      providerUsed: 'middleware-cache-fallback',
+      modelUsed: 'rule-fallback',
+      isFallback: true
+    };
+  }
+});
 ```
 
 ---
@@ -200,11 +215,12 @@ Explore the complete multi-provider customer service routing application in [`ex
 * [**01-typesafe-customer-service.ts**](./examples/01-typesafe-customer-service.ts): Official TypeSafe AI REST APIs
 * [**02-openrouter-customer-service.ts**](./examples/02-openrouter-customer-service.ts): OpenRouter Decisions API
 * [**03-cloudflare-worker-customer-service/**](./examples/03-cloudflare-worker-customer-service): Sub-15ms edge routing via `env.AI` binding
-* [**04-offline-fallback-resilience.ts**](./examples/04-offline-fallback-resilience.ts): Zero-credential air-gapped simulation & failover
+* [**04-offline-fallback-resilience.ts**](./examples/04-offline-fallback-resilience.ts): Transparent error handling & middleware failover
+* [**05-homerouter-v1-1-agentic-dispatch.ts**](./examples/05-homerouter-v1-1-agentic-dispatch.ts): Sub-1.2ms local agentic dispatch via HomeRouter S1 v1.1
 
-Run the zero-credential offline demo immediately:
+Run the resilience failover demo:
 ```bash
-bun run example:mock
+bun run example:resilience
 ```
 
 ---

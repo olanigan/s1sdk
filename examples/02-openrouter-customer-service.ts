@@ -47,7 +47,6 @@ async function main() {
 
   if (!apiKey) {
     console.warn('\n⚠️  Notice: OPENROUTER_API_KEY environment variable is not set.');
-    console.warn('   Running with automatic fallback to deterministic MockEngine.');
     console.warn('   To run against live OpenRouter: export OPENROUTER_API_KEY="sk-or-..."\n');
   }
 
@@ -56,8 +55,7 @@ async function main() {
     provider: 'openrouter',
     apiKey: apiKey || '',
     model: 'typesafe/jev-1.13',
-    timeoutMs: 10_000,
-    fallbackToMock: true // Degrade gracefully to MockEngine if remote credentials are missing or upstream is offline
+    timeoutMs: 10_000
   });
 
   console.log(`[Init] S1Client resolved provider: "${client.provider}"\n`);

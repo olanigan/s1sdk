@@ -29,7 +29,6 @@ import {
 
 import {
   JevProviderBase,
-  MockEngine,
   OpenRouterProvider,
   TypeSafeProvider,
   CloudflareWorkerProvider,
@@ -39,7 +38,7 @@ import {
 } from './providers/index.js';
 
 export interface S1ClientOptions {
-  /** Target provider mode ('auto', 'mock', 'openrouter', 'typesafe', 'cloudflare', 'homestead', 'ollama', 'local') */
+  /** Target provider mode ('auto', 'openrouter', 'typesafe', 'cloudflare', 'homestead', 'ollama', 'local') */
   readonly provider?: JevProviderType;
   /** Explicit custom provider instance */
   readonly providerInstance?: JevProviderBase;
@@ -57,10 +56,6 @@ export interface S1ClientOptions {
   readonly timeoutMs?: number;
   /** Max retries for retryable network faults (default: 0) */
   readonly maxRetries?: number;
-  /** Whether to fallback to deterministic MockEngine on error (default: true) */
-  readonly fallbackToMock?: boolean;
-  /** Shortcut flag to force offline MockEngine */
-  readonly useMock?: boolean;
   /** Initial middlewares to register */
   readonly middlewares?: readonly JevMiddleware[];
 }
@@ -74,7 +69,6 @@ export class S1Client {
 
   constructor(options: S1ClientOptions = {}) {
     this.defaultOptions = {
-      fallbackToMock: true,
       timeoutMs: 10_000,
       maxRetries: 0,
       ...options
@@ -95,10 +89,6 @@ export class S1Client {
       return options.providerInstance;
     }
 
-    if (options.useMock) {
-      return new MockEngine();
-    }
-
     const envProcess = typeof process !== 'undefined' ? process : undefined;
     const envOpenRouterKey = envProcess?.env?.OPENROUTER_API_KEY;
     const envTypeSafeKey = envProcess?.env?.TYPESAFE_API_KEY;
@@ -112,8 +102,6 @@ export class S1Client {
 
     if (requested && requested !== 'auto') {
       switch (requested) {
-        case 'mock':
-          return new MockEngine();
         case 'openrouter':
           return new OpenRouterProvider(options.apiKey || envOpenRouterKey || '', options.endpoint, options.model);
         case 'typesafe':
@@ -139,7 +127,7 @@ export class S1Client {
             keepAlive: options.keepAlive
           });
         default:
-          return new MockEngine();
+          throw new JevError(`Unsupported or unrecognized provider: "${requested}"`);
       }
     }
 
@@ -206,7 +194,6 @@ export class S1Client {
     const options: JevExecutionOptions = {
       timeoutMs: this.defaultOptions.timeoutMs,
       maxRetries: this.defaultOptions.maxRetries,
-      fallbackToMock: this.defaultOptions.fallbackToMock,
       ...request.options,
       ...overrideOptions
     };
@@ -246,19 +233,7 @@ export class S1Client {
         return recovered as JevDecisionResponse<TQuestions>;
       }
 
-      // 4. Safe fallback to MockEngine if configured
-      const shouldFallback = options.fallbackToMock !== false;
-      if (shouldFallback && this.activeProvider.providerId !== 'mock-engine') {
-        if (typeof console !== 'undefined' && console.warn) {
-          console.warn(
-            `[s1sdk] Provider "${this.activeProvider.providerId}" failed: ${error.message}. Degrading gracefully to MockEngine.`
-          );
-        }
-        const fallbackRes = await MockEngine.decide(request, { isFallback: true });
-        await executeAfterResponse(this.middlewares, context, fallbackRes);
-        return fallbackRes;
-      }
-
+      // 4. Transparent error propagation: throw error directly
       throw error;
     }
 

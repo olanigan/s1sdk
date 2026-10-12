@@ -19,8 +19,7 @@ async function validateHomeRouterEndToEnd() {
   // Initialize S1Client configured with HomeRouter v1.1
   const s1 = new S1Client({
     provider: 'homestead',
-    model: 'homerouter-420M-v1.1',
-    fallbackToMock: true, // Graceful degradation to deterministic mock engine if daemon is offline
+    model: 'homerouter-420M-v1.1'
   });
 
   // -------------------------------------------------------------------------

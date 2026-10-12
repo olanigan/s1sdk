@@ -5,13 +5,13 @@ This directory contains production-ready examples demonstrating how to implement
 1. **TypeSafe AI Official REST APIs** (`01-typesafe-customer-service.ts`)
 2. **OpenRouter Decisions API** (`02-openrouter-customer-service.ts`)
 3. **Cloudflare Workers AI Edge Service** (`03-cloudflare-worker-customer-service/`)
-4. **Air-Gapped Offline Mock & Fallback Resilience** (`04-offline-fallback-resilience.ts`)
+4. **Failover Resilience via onError Middleware** (`04-offline-fallback-resilience.ts`)
 
 ---
 
 ## 1. Problem Space: Single-Pass Customer Service Routing
 
-Rather than incurring \$3.00–\$15.00 / Mtok and 2,500ms latency on multi-token LLMs for simple classification, `s1sdk` evaluates the ticket in a single sub-25ms forward pass across three canonical System-1 primitives:
+Rather than incurring $3.00–$15.00 / Mtok and 2,500ms latency on multi-token LLMs for simple classification, `s1sdk` evaluates the ticket in a single sub-25ms forward pass across three canonical System-1 primitives:
 
 | Primitive | Question | Return Type | Business Purpose |
 | :--- | :--- | :--- | :--- |
@@ -23,10 +23,10 @@ Rather than incurring \$3.00–\$15.00 / Mtok and 2,500ms latency on multi-token
 
 ## 2. Quickstart: Running the Examples
 
-### Option A: Zero-Credential Offline Simulation (No API keys needed)
-Instantly runs deterministic local heuristics without network calls:
+### Option A: Failover Resilience via Middleware
+Demonstrates transparent error throwing and graceful recovery using `onError` middleware:
 ```bash
-bun run example:mock
+bun run example:resilience
 # or
 bun run examples/04-offline-fallback-resilience.ts
 ```
@@ -57,12 +57,12 @@ npx wrangler dev
 
 ## 3. Provider Architecture Comparison
 
-| Feature | TypeSafe AI | OpenRouter | Cloudflare Workers AI | Offline Mock Engine |
+| Feature | TypeSafe AI | OpenRouter | Cloudflare Workers AI | Homestead (Local) |
 | :--- | :--- | :--- | :--- | :--- |
-| **Execution Path** | HTTPS REST | HTTPS REST | In-process V8 (`env.AI`) | Local In-Memory |
-| **Network Overhead** | TLS Handshake | TLS Handshake | **0ms (V8 Memory)** | **0ms (Local)** |
+| **Execution Path** | HTTPS REST | HTTPS REST | In-process V8 (`env.AI`) | Local HTTP Daemon |
+| **Network Overhead** | TLS Handshake | TLS Handshake | **0ms (V8 Memory)** | **< 1ms (Localhost)** |
 | **Typical Latency** | ~35ms | ~45ms | **< 12ms** | **< 2ms** |
-| **Default Model** | `jev-1` | `typesafe/jev-latest` | `@cf/typesafe/jev` | Deterministic FNV-1a |
+| **Default Model** | `jev-1` | `typesafe/jev-latest` | `@cf/typesafe/jev` | `homerouter-420M` |
 | **Credentials** | `TYPESAFE_API_KEY` | `OPENROUTER_API_KEY` | None (Cloudflare Binding) | None |
 | **Air-Gap Capable** | No | No | Edge Cloud | **Yes (Full Air-Gap)** |
 

@@ -45,7 +45,7 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "bun run build && bun test",
-    "example:mock": "bun run examples/04-offline-fallback-resilience.ts",
+    "example:resilience": "bun run examples/04-offline-fallback-resilience.ts",
     "example:typesafe": "bun run examples/01-typesafe-customer-service.ts",
     "example:openrouter": "bun run examples/02-openrouter-customer-service.ts"
   },
