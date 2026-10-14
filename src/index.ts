@@ -29,15 +29,16 @@ import {
 
 import {
   JevProviderBase,
-  MockEngine,
   OpenRouterProvider,
   TypeSafeProvider,
   CloudflareWorkerProvider,
+  HomesteadProvider,
+  OllamaProvider,
   type CloudflareAiBinding
 } from './providers/index.js';
 
 export interface S1ClientOptions {
-  /** Target provider mode ('auto', 'mock', 'openrouter', 'typesafe', 'cloudflare') */
+  /** Target provider mode ('auto', 'openrouter', 'typesafe', 'cloudflare', 'homestead', 'ollama', 'local') */
   readonly provider?: JevProviderType;
   /** Explicit custom provider instance */
   readonly providerInstance?: JevProviderBase;
@@ -49,14 +50,12 @@ export interface S1ClientOptions {
   readonly model?: string;
   /** Cloudflare Workers AI env.AI in-process binding */
   readonly aiBinding?: CloudflareAiBinding;
+  /** Ollama / Homestead daemon keep_alive duration (e.g. '5m', '1h', -1) */
+  readonly keepAlive?: string | number;
   /** Execution timeout in milliseconds (default: 10,000ms) */
   readonly timeoutMs?: number;
   /** Max retries for retryable network faults (default: 0) */
   readonly maxRetries?: number;
-  /** Whether to fallback to deterministic MockEngine on error (default: true) */
-  readonly fallbackToMock?: boolean;
-  /** Shortcut flag to force offline MockEngine */
-  readonly useMock?: boolean;
   /** Initial middlewares to register */
   readonly middlewares?: readonly JevMiddleware[];
 }
@@ -70,7 +69,6 @@ export class S1Client {
 
   constructor(options: S1ClientOptions = {}) {
     this.defaultOptions = {
-      fallbackToMock: true,
       timeoutMs: 10_000,
       maxRetries: 0,
       ...options
@@ -91,20 +89,19 @@ export class S1Client {
       return options.providerInstance;
     }
 
-    if (options.useMock) {
-      return new MockEngine();
-    }
-
     const envProcess = typeof process !== 'undefined' ? process : undefined;
     const envOpenRouterKey = envProcess?.env?.OPENROUTER_API_KEY;
     const envTypeSafeKey = envProcess?.env?.TYPESAFE_API_KEY;
+    const envHomesteadUrl =
+      envProcess?.env?.HOMESTEAD_API_URL ||
+      envProcess?.env?.HOMESTEAD_S1_URL ||
+      envProcess?.env?.HOMESTEAD_ENDPOINT;
+    const envOllamaHost = envProcess?.env?.OLLAMA_HOST;
 
     const requested = options.provider;
 
     if (requested && requested !== 'auto') {
       switch (requested) {
-        case 'mock':
-          return new MockEngine();
         case 'openrouter':
           return new OpenRouterProvider(options.apiKey || envOpenRouterKey || '', options.endpoint, options.model);
         case 'typesafe':
@@ -114,25 +111,51 @@ export class S1Client {
         case 'cloudflare-worker':
         case 'cloudflare-workers-ai':
           return new CloudflareWorkerProvider(options.aiBinding, options.model);
+        case 'homestead':
+        case 'local':
+          return new HomesteadProvider({
+            apiKey: options.apiKey,
+            endpoint: options.endpoint,
+            model: options.model,
+            keepAlive: options.keepAlive
+          });
+        case 'ollama':
+          return new OllamaProvider({
+            apiKey: options.apiKey,
+            endpoint: options.endpoint || envOllamaHost,
+            model: options.model,
+            keepAlive: options.keepAlive
+          });
         default:
-          return new MockEngine();
+          throw new JevError(`Unsupported or unrecognized provider: "${requested}"`);
       }
     }
 
-    // Auto-discovery heuristics
+    // Auto-discovery heuristics: explicit client options take priority
     if (options.aiBinding) {
       return new CloudflareWorkerProvider(options.aiBinding, options.model);
     }
 
-    if (options.apiKey || envOpenRouterKey) {
-      return new OpenRouterProvider(options.apiKey || envOpenRouterKey || '', options.endpoint, options.model);
+    if (options.apiKey) {
+      return new OpenRouterProvider(options.apiKey, options.endpoint, options.model);
     }
 
-    if (envTypeSafeKey) {
-      return new TypeSafeProvider(envTypeSafeKey, options.endpoint, options.model);
+    if (envOllamaHost && !envHomesteadUrl) {
+      return new OllamaProvider({
+        apiKey: options.apiKey,
+        endpoint: options.endpoint || envOllamaHost,
+        model: options.model,
+        keepAlive: options.keepAlive
+      });
     }
 
-    return new MockEngine();
+    // Default: Batteries-Included Homestead engine serving homerouter-420M locally
+    return new HomesteadProvider({
+      apiKey: options.apiKey,
+      endpoint: options.endpoint || envHomesteadUrl,
+      model: options.model || 'homerouter-420M',
+      keepAlive: options.keepAlive
+    });
   }
 
   /**
@@ -171,7 +194,6 @@ export class S1Client {
     const options: JevExecutionOptions = {
       timeoutMs: this.defaultOptions.timeoutMs,
       maxRetries: this.defaultOptions.maxRetries,
-      fallbackToMock: this.defaultOptions.fallbackToMock,
       ...request.options,
       ...overrideOptions
     };
@@ -211,19 +233,7 @@ export class S1Client {
         return recovered as JevDecisionResponse<TQuestions>;
       }
 
-      // 4. Safe fallback to MockEngine if configured
-      const shouldFallback = options.fallbackToMock !== false;
-      if (shouldFallback && this.activeProvider.providerId !== 'mock-engine') {
-        if (typeof console !== 'undefined' && console.warn) {
-          console.warn(
-            `[s1sdk] Provider "${this.activeProvider.providerId}" failed: ${error.message}. Degrading gracefully to MockEngine.`
-          );
-        }
-        const fallbackRes = await MockEngine.decide(request, { isFallback: true });
-        await executeAfterResponse(this.middlewares, context, fallbackRes);
-        return fallbackRes;
-      }
-
+      // 4. Transparent error propagation: throw error directly
       throw error;
     }
 
@@ -244,6 +254,85 @@ export class S1Client {
     overrideOptions?: JevExecutionOptions
   ): Promise<JevDecisionResponse<TQuestions>> {
     return this.decide(request, overrideOptions);
+  }
+
+  /**
+   * High-level single-pass intent routing across discrete candidate actions.
+   * Ergonomic batteries-included method for agent tools, workflows, and triage loops.
+   */
+  public async route(
+    state: string | Record<string, unknown>,
+    candidates: readonly string[] | Record<string, string>,
+    options?: JevExecutionOptions & { questionId?: string; prompt?: string }
+  ): Promise<{
+    winner: string;
+    confidence: number;
+    probabilities: Record<string, number>;
+    passedGate: boolean;
+    latencyMs: number;
+    raw: JevDecisionResponse<Record<string, JevQuestion>>;
+  }> {
+    const qId = options?.questionId || 'route';
+    const prompt = options?.prompt || 'Select the most appropriate next action';
+    const criteria: Record<string, string> = Array.isArray(candidates)
+      ? Object.fromEntries(candidates.map((c) => [c, String(c)]))
+      : candidates;
+
+    const response = await this.decide(
+      {
+        state,
+        questions: {
+          [qId]: choice(prompt, criteria)
+        }
+      },
+      options
+    );
+
+    const ans = response.answers[qId] as any;
+    const requestedCandidates = Array.isArray(candidates) ? candidates : Object.keys(candidates);
+    const rawProbabilities = (ans?.probabilities ?? {}) as Record<string, number>;
+
+    // Filter and renormalize across requested candidates if returned set is a superset
+    let filteredProbabilities: Record<string, number> = {};
+    let hasMatching = false;
+    for (const c of requestedCandidates) {
+      if (rawProbabilities[c] !== undefined) {
+        filteredProbabilities[c] = rawProbabilities[c];
+        hasMatching = true;
+      }
+    }
+
+    if (hasMatching) {
+      const sum = Object.values(filteredProbabilities).reduce((a, b) => a + b, 0);
+      if (sum > 0) {
+        for (const k of Object.keys(filteredProbabilities)) {
+          filteredProbabilities[k] = Number(((filteredProbabilities[k] ?? 0) / sum).toFixed(4));
+        }
+      }
+    } else {
+      filteredProbabilities = rawProbabilities;
+    }
+
+    let winner = requestedCandidates[0] || 'unknown';
+    let maxP = -1;
+    for (const [k, p] of Object.entries(filteredProbabilities)) {
+      if (p > maxP) {
+        maxP = p;
+        winner = k;
+      }
+    }
+
+    const confidence = maxP >= 0 ? maxP : (typeof ans?.confidence === 'number' ? ans.confidence : 0);
+    const threshold = options?.minConfidence ?? 0.90;
+
+    return {
+      winner,
+      confidence,
+      probabilities: filteredProbabilities,
+      passedGate: confidence >= threshold,
+      latencyMs: response.latencyMs,
+      raw: response
+    };
   }
 
   /**

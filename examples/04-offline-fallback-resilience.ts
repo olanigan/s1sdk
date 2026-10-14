@@ -1,9 +1,11 @@
 /**
- * Example 4: Zero-Credential Offline Simulation & Network Resiliency
+ * Example 4: Transparent Error Handling & Middleware Failover Resilience
  *
  * Demonstrates:
- *   1. Air-gapped offline evaluation via MockEngine (< 2ms, zero dependencies, zero network).
- *   2. Automatic graceful degradation when a remote provider crashes or times out.
+ *   1. Transparent error propagation: remote failures throw JevProviderError
+ *      directly without silent mock degradation.
+ *   2. True failover resilience via `onError` middleware: intercepting faults
+ *      and recovering with safe fallback decisions or secondary routing.
  *
  * Run:
  *   bun run examples/04-offline-fallback-resilience.ts
@@ -13,7 +15,8 @@ import {
   S1Client,
   JevProviderBase,
   JevProviderError,
-  type ProviderMetadata
+  type ProviderMetadata,
+  type JevDecisionResponse
 } from '../src/index.js';
 import {
   customerServiceQuestions,
@@ -48,47 +51,87 @@ class FailingUpstreamProvider extends JevProviderBase {
 
 async function main() {
   console.log('='.repeat(70));
-  console.log('PART 1: AIR-GAPPED OFFLINE MOCK ENGINE (ZERO NETWORK / ZERO CREDENTIALS)');
+  console.log('PART 1: TRANSPARENT ERROR PROPAGATION (NO SILENT MOCK FALLBACK)');
   console.log('='.repeat(70));
 
-  // Initialize client in explicit offline mock mode
-  const offlineClient = new S1Client({ useMock: true });
-  console.log(`[Init] Offline client resolved provider: "${offlineClient.provider}"\n`);
+  const directClient = new S1Client({
+    providerInstance: new FailingUpstreamProvider()
+  });
 
-  for (const [key, ticket] of Object.entries(sampleTickets)) {
-    console.log(`>> Routing Ticket Scenario: ${key}...`);
-    const decision = await offlineClient.decide({
-      state: ticket,
+  console.log(`[Init] Direct client resolved provider: "${directClient.provider}"`);
+  console.log(`>> Invoking failing upstream directly...`);
+
+  try {
+    await directClient.decide({
+      state: sampleTickets.doubleBillingAngry!,
       questions: customerServiceQuestions
     });
-
-    renderRoutingReceipt(ticket, decision);
+    console.error('❌ Error: directClient should have thrown an error!');
+  } catch (err: any) {
+    console.log(`✅ Caught expected transparent error: [${err.constructor.name}] ${err.message}`);
+    console.log(`   (No silent degradation occurred; caller receives exact upstream failure)\n`);
   }
 
   console.log('='.repeat(70));
-  console.log('PART 2: ZERO-FAILURE RESILIENCE (AUTOMATIC FALLBACK ON UPSTREAM OUTAGE)');
+  console.log('PART 2: FAILOVER RESILIENCE VIA onError MIDDLEWARE');
   console.log('='.repeat(70));
 
-  // Initialize client with failing provider and fallbackToMock enabled
+  // Initialize client with failing provider and onError failover middleware
   const resilientClient = new S1Client({
-    providerInstance: new FailingUpstreamProvider(),
-    fallbackToMock: true // Guarantees the application never crashes on network partitions
+    providerInstance: new FailingUpstreamProvider()
+  });
+
+  resilientClient.use({
+    name: 'failover-circuit-breaker',
+    onError: async (ctx, error) => {
+      console.warn(`⚠️ [Middleware] Intercepted upstream fault: "${error.message}"`);
+      console.warn(`🔄 [Middleware] Generating deterministic failover decision...`);
+
+      // Safe fallback response generated deterministically by middleware
+      const fallbackResponse: JevDecisionResponse<typeof customerServiceQuestions> = {
+        answers: {
+          is_escalation_risk: { noul: 0.85 },
+          target_department: {
+            choice: 'billing',
+            confidence: 0.90,
+            probabilities: {
+              billing: 0.90,
+              technical_support: 0.05,
+              retention: 0.03,
+              general_inquiry: 0.02
+            }
+          },
+          priority_level: {
+            score: 4,
+            confidence: 0.88
+          }
+        },
+        latencyMs: 1.2,
+        providerUsed: 'middleware-failover',
+        modelUsed: 'failover-safe-heuristic',
+        isFallback: true
+      };
+
+      return fallbackResponse;
+    }
   });
 
   const enterpriseTicket = sampleTickets.doubleBillingAngry!;
-  console.log(`>> Invoking failing upstream with fallbackToMock: true...`);
+  console.log(`>> Invoking failing upstream protected by onError middleware...`);
 
   const fallbackDecision = await resilientClient.decide({
     state: enterpriseTicket,
     questions: customerServiceQuestions
   });
 
-  console.log(`\n✅ Resilient Client successfully caught upstream failure and degraded gracefully:`);
+  renderRoutingReceipt(enterpriseTicket, fallbackDecision);
+
+  console.log(`✅ Resilient Client successfully recovered via onError middleware:`);
   console.log(`   - isFallback:   ${fallbackDecision.isFallback}`);
   console.log(`   - providerUsed: ${fallbackDecision.providerUsed}`);
   console.log(`   - targetDept:   ${fallbackDecision.answers.target_department.choice}`);
   console.log(`   - escalation:   ${(fallbackDecision.answers.is_escalation_risk.noul * 100).toFixed(1)}%`);
-  console.log(`\nSystem-1 decision executed without disrupting the caller's event loop!\n`);
+  console.log(`\nSystem-1 decision executed cleanly without unhandled rejections!\n`);
 }
 
 main().catch((err) => {

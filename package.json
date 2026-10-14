@@ -1,6 +1,6 @@
 {
   "name": "s1sdk",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Zero-overhead System-1 decision client for discrete token/logit routing, calibrated probabilities, and least-cost execution",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -45,7 +45,7 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "bun run build && bun test",
-    "example:mock": "bun run examples/04-offline-fallback-resilience.ts",
+    "example:resilience": "bun run examples/04-offline-fallback-resilience.ts",
     "example:typesafe": "bun run examples/01-typesafe-customer-service.ts",
     "example:openrouter": "bun run examples/02-openrouter-customer-service.ts"
   },

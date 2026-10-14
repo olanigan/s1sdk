@@ -8,7 +8,7 @@
 [![Release Status](https://img.shields.io/badge/status-experimental--alpha-orange.svg)](#)
 
 > [!WARNING]
-> **EXPERIMENTAL DEVELOPER PREVIEW (v0.1.0) — NOT FOR PRODUCTION USE**  
+> **EXPERIMENTAL DEVELOPER PREVIEW (v0.1.1) — NOT FOR PRODUCTION USE**  
 > `s1sdk` is currently an experimental developer preview undergoing active protocol and architecture development. Wire specifications, model identifiers, and provider bindings are subject to breaking changes. **Do NOT deploy this release in mission-critical or unmonitored production environments.**
 
 ---
@@ -50,11 +50,14 @@ import { S1Client, noul, choice, score } from 's1sdk';
 
 const s1 = new S1Client();
 
-// 1. noul: Binary calibrated probability [0.0, 1.0] (e.g., safety, truth likelihood)
+// 1. noul: Binary calibrated probability [0.0, 1.0] (with optional true/false criteria)
 const safetyCheck = await s1.decide({
   state: 'rm -rf /var/log/*',
   questions: {
-    is_malicious: noul('Check if the bash command is destructive or unauthorized')
+    is_malicious: noul('Check if the bash command is destructive or unauthorized', {
+      true: 'Destructive system command',
+      false: 'Benign standard operation'
+    })
   }
 });
 console.log(safetyCheck.answers.is_malicious.noul); // 0.9600
@@ -91,14 +94,16 @@ console.log(qualityEvaluation.answers.faithfulness.score); // 4
 `s1sdk` dynamically adapts to its host environment:
 
 ### In-Process Cloudflare Workers AI (`env.AI`)
+Supports `@cf/cloudflare/clef-flash` (default fast hot-path, 38.8ms), `@cf/cloudflare/clef` (27B), and `typesafe/jev`:
+
 ```typescript
-import { S1Client } from 's1sdk';
+import { S1Client, CLOUDFLARE_MODELS } from 's1sdk';
 
 export default {
   async fetch(req: Request, env: Env) {
     const s1 = new S1Client({
       aiBinding: env.AI,
-      model: '@cf/typesafe/jev'
+      model: CLOUDFLARE_MODELS.CLEF_FLASH // '@cf/cloudflare/clef-flash'
     });
 
     const res = await s1.decide({ ... });
@@ -127,12 +132,15 @@ const s1 = new S1Client({
 });
 ```
 
-### Air-Gapped Offline Mock Engine
+### Local Silicon / Homestead Engine
 ```typescript
 import { S1Client } from 's1sdk';
 
-// Instant evaluation (<2ms) with zero network requests
-const s1 = new S1Client({ useMock: true });
+// Zero-runtime-dependency local execution via Homestead daemon (<1.2ms)
+const s1 = new S1Client({
+  provider: 'homestead',
+  model: 'homerouter-420M'
+});
 ```
 
 ---
@@ -163,16 +171,28 @@ s1.use(telemetryPlugin);
 
 ---
 
-## 6. Zero-Failure Fallback Guarantee
+## 6. Transparent Error Handling & Middleware Failover
 
-If remote APIs fail (HTTP 502, network partition, rate limits exhausted):
-1. The client automatically catches the error and evaluates the decision locally using `MockEngine`.
-2. The response is stamped with `isFallback: true` and `providerUsed: 'mock-engine-fallback'`.
-3. Execution on your critical path continues uninterrupted.
+`s1sdk` eliminates silent degradation. If remote providers fail (HTTP 502, network partition, rate limits exhausted), `client.decide()` throws `JevProviderError` or `JevTimeoutError` directly and transparently.
 
-To disable fallback and rethrow errors:
+To handle outages gracefully without crashing the critical path, use `onError` middleware:
+
 ```typescript
-const s1 = new S1Client({ fallbackToMock: false });
+s1.use({
+  name: 'resilience-fallback',
+  onError(ctx, error) {
+    console.warn(`[Failover] Upstream failure: ${error.message}. Returning cached fallback.`);
+    return {
+      answers: {
+        department: { choice: 'general_inquiry', confidence: 1.0, probabilities: { general_inquiry: 1.0 } }
+      },
+      latencyMs: 0.1,
+      providerUsed: 'middleware-cache-fallback',
+      modelUsed: 'rule-fallback',
+      isFallback: true
+    };
+  }
+});
 ```
 
 ---
@@ -195,11 +215,12 @@ Explore the complete multi-provider customer service routing application in [`ex
 * [**01-typesafe-customer-service.ts**](./examples/01-typesafe-customer-service.ts): Official TypeSafe AI REST APIs
 * [**02-openrouter-customer-service.ts**](./examples/02-openrouter-customer-service.ts): OpenRouter Decisions API
 * [**03-cloudflare-worker-customer-service/**](./examples/03-cloudflare-worker-customer-service): Sub-15ms edge routing via `env.AI` binding
-* [**04-offline-fallback-resilience.ts**](./examples/04-offline-fallback-resilience.ts): Zero-credential air-gapped simulation & failover
+* [**04-offline-fallback-resilience.ts**](./examples/04-offline-fallback-resilience.ts): Transparent error handling & middleware failover
+* [**05-homerouter-v1-1-agentic-dispatch.ts**](./examples/05-homerouter-v1-1-agentic-dispatch.ts): Sub-1.2ms local agentic dispatch via HomeRouter S1 v1.1
 
-Run the zero-credential offline demo immediately:
+Run the resilience failover demo:
 ```bash
-bun run example:mock
+bun run example:resilience
 ```
 
 ---

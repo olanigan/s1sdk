@@ -47,7 +47,6 @@ async function main() {
 
   if (!apiKey) {
     console.warn('\n⚠️  Notice: TYPESAFE_API_KEY environment variable is not set.');
-    console.warn('   Running with automatic fallback to deterministic MockEngine.');
     console.warn('   To run against production TypeSafe AI: export TYPESAFE_API_KEY="ts-..."\n');
   }
 
@@ -57,8 +56,7 @@ async function main() {
     apiKey: apiKey || '',
     endpoint: process.env.TYPESAFE_ENDPOINT || 'https://api.typesafe.ai/v1/systemone',
     model: 'jev-latest',
-    timeoutMs: 10_000,
-    fallbackToMock: true // Degrade gracefully to MockEngine if remote credentials are missing or upstream is offline
+    timeoutMs: 10_000
   });
 
   console.log(`[Init] S1Client resolved provider: "${client.provider}"\n`);
