@@ -50,6 +50,21 @@ export interface HomesteadConfig {
   readonly keepAlive?: string | number;
 }
 
+/**
+ * Normalizes a System-1 daemon or Ollama endpoint URL so that it is properly formed
+ * and explicitly targets the `/v1/systemone` route.
+ */
+export function normalizeSystemOneEndpoint(url: string): string {
+  let trimmed = url.trim().replace(/\/+$/, '');
+  if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
+    trimmed = `http://${trimmed}`;
+  }
+  if (trimmed.endsWith('/v1/systemone')) {
+    return trimmed;
+  }
+  return `${trimmed}/v1/systemone`;
+}
+
 export class HomesteadProvider extends JevProviderBase {
   readonly name: string = 'Homestead Sovereign S1 Provider';
   readonly providerId: string = 'homestead';
@@ -63,11 +78,13 @@ export class HomesteadProvider extends JevProviderBase {
     super();
     if (typeof config === 'string') {
       this.apiKey = config;
-      this.endpoint = endpoint || this.detectDefaultEndpoint();
+      const rawEndpoint = endpoint || this.detectDefaultEndpoint();
+      this.endpoint = normalizeSystemOneEndpoint(rawEndpoint);
       this.model = model || 'homerouter-420M';
     } else {
       this.apiKey = config?.apiKey;
-      this.endpoint = config?.endpoint || this.detectDefaultEndpoint();
+      const rawEndpoint = config?.endpoint || this.detectDefaultEndpoint();
+      this.endpoint = normalizeSystemOneEndpoint(rawEndpoint);
       this.model = config?.model || 'homerouter-420M';
       this.keepAlive = config?.keepAlive;
     }
@@ -80,7 +97,7 @@ export class HomesteadProvider extends JevProviderBase {
       envProcess?.env?.HOMESTEAD_S1_URL ||
       envProcess?.env?.HOMESTEAD_ENDPOINT;
     if (envUrl) {
-      return envUrl.endsWith('/v1/systemone') ? envUrl : `${envUrl.replace(/\/+$/, '')}/v1/systemone`;
+      return normalizeSystemOneEndpoint(envUrl);
     }
     return 'http://127.0.0.1:8080/v1/systemone';
   }
@@ -260,13 +277,25 @@ export class OllamaProvider extends HomesteadProvider {
 
   constructor(config?: HomesteadConfig | string, endpoint?: string, model?: string) {
     if (typeof config === 'string') {
-      super(config, endpoint || 'http://127.0.0.1:11434/v1/systemone', model || 'tev1:0.8b');
+      const rawEndpoint = endpoint || 'http://127.0.0.1:11434/v1/systemone';
+      super(config, normalizeSystemOneEndpoint(rawEndpoint), model || 'tev1:0.8b');
     } else {
+      const rawEndpoint = config?.endpoint || 'http://127.0.0.1:11434/v1/systemone';
       super({
         ...config,
-        endpoint: config?.endpoint || 'http://127.0.0.1:11434/v1/systemone',
+        endpoint: normalizeSystemOneEndpoint(rawEndpoint),
         model: config?.model || 'tev1:0.8b'
       });
+    }
+  }
+
+  override async isHealthy(): Promise<boolean> {
+    try {
+      const baseUrl = this.endpoint.replace(/\/v1\/systemone$/, '');
+      const res = await fetch(baseUrl, { method: 'GET', signal: AbortSignal.timeout(1500) });
+      return res.ok;
+    } catch {
+      return false;
     }
   }
 

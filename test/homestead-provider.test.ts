@@ -78,6 +78,26 @@ describe('Homestead & Ollama System-1 Providers', () => {
       expect(client.provider).toBe('ollama');
       expect(client.providerInstance).toBeInstanceOf(OllamaProvider);
     });
+
+    it('sanitizes and normalizes endpoint URLs missing /v1/systemone', () => {
+      const homesteadProvider = new HomesteadProvider({
+        endpoint: 'http://127.0.0.1:18765'
+      });
+      // @ts-expect-error accessing protected endpoint for verification
+      expect(homesteadProvider.endpoint).toBe('http://127.0.0.1:18765/v1/systemone');
+
+      const ollamaProvider = new OllamaProvider({
+        endpoint: 'http://127.0.0.1:11434'
+      });
+      // @ts-expect-error accessing protected endpoint for verification
+      expect(ollamaProvider.endpoint).toBe('http://127.0.0.1:11434/v1/systemone');
+
+      const trailingSlashProvider = new OllamaProvider({
+        endpoint: 'http://127.0.0.1:11434/v1/systemone/'
+      });
+      // @ts-expect-error accessing protected endpoint for verification
+      expect(trailingSlashProvider.endpoint).toBe('http://127.0.0.1:11434/v1/systemone');
+    });
   });
 
   describe('Wire Payload Parity & Decision Execution', () => {
