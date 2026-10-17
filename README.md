@@ -195,6 +195,28 @@ s1.use({
 });
 ```
 
+
+### Retries, redirects and reported cost
+
+```typescript
+const s1 = new S1Client({
+  provider: 'openrouter',
+  apiKey: process.env.OPENROUTER_API_KEY,
+  model: '~typesafe/jev-latest',
+  timeoutMs: 15_000,
+  maxRetries: 2,          // default 0: nothing is retried unless you ask
+  retryBackoffMs: 400,    // default 25, tuned for local daemons; remote APIs want a larger base
+  retryMaxBackoffMs: 5_000, // default 500
+  maxRetryAfterMs: 10_000   // default 10000: a longer Retry-After fails at once instead of sleeping
+});
+```
+
+- **Retryable:** HTTP 429, any 5xx (including 502, 503 and 529), and network faults. 400 and 401/403 are never retried.
+- **Retry-After wins.** A 429 with `Retry-After` (seconds or an HTTP-date) is waited out exactly, unless it exceeds `maxRetryAfterMs`, in which case the `JevRateLimitError` is thrown immediately. Without the header, backoff is `min(retryMaxBackoffMs, retryBackoffMs * 2^attempt)` with 0.8 to 1.2 jitter.
+- **Redirects are refused.** Providers send `redirect: 'error'`, so an `Authorization` header is never forwarded to another host. A refused redirect throws a non-retryable `JevProviderError`. If your endpoint legitimately redirects (for example http to https), configure the final URL.
+- **`response.modelUsed` is the model the server reports**, falling back to the one you requested. With an alias such as `jev-latest` this is how you learn which version actually ran.
+- **`response.usage.cost`** is set only when the API reports a finite, non-negative `usage.cost` (OpenRouter does). It is never estimated.
+
 ---
 
 ## 7. Backwards Compatibility
