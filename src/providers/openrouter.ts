@@ -6,7 +6,7 @@
  * Default Model: typesafe/jev-latest
  */
 
-import { JevProviderBase, type ProviderMetadata } from './base.js';
+import { JevProviderBase, type ProviderMetadata, parseRetryAfterMs, parseCost, isRedirectRefusal, REDIRECT_REFUSED } from './base.js';
 import {
   type JevQuestion,
   type JevDecisionRequest,
@@ -77,9 +77,13 @@ export class OpenRouterProvider extends JevProviderBase {
           'X-Title': 's1sdk'
         },
         body: JSON.stringify(payload),
+        redirect: 'error',
         signal
       });
     } catch (netErr: any) {
+      if (isRedirectRefusal(netErr)) {
+        throw new JevProviderError(`OpenRouter API ${REDIRECT_REFUSED}`, 0, false, netErr instanceof Error ? netErr : undefined);
+      }
       if (netErr?.name === 'AbortError' || netErr?.code === 'ETIMEDOUT') {
         throw new JevTimeoutError(options?.timeoutMs ?? 10_000);
       }
@@ -98,8 +102,7 @@ export class OpenRouterProvider extends JevProviderBase {
         throw new JevAuthenticationError(`OpenRouter unauthorized: ${sanitizedErr || res.statusText}`, res.status);
       }
       if (res.status === 429) {
-        const retryAfterHeader = res.headers.get('retry-after');
-        const retryAfterMs = retryAfterHeader ? parseInt(retryAfterHeader, 10) * 1000 : undefined;
+        const retryAfterMs = parseRetryAfterMs(res.headers.get('retry-after'));
         throw new JevRateLimitError(`OpenRouter rate limit exceeded: ${sanitizedErr || res.statusText}`, retryAfterMs);
       }
       if (res.status === 408 || res.status === 504) {
@@ -131,6 +134,7 @@ export class OpenRouterProvider extends JevProviderBase {
       data.usage?.inputTokens ??
       (typeof request.state === 'string' ? Math.ceil(request.state.length / 4) : 100);
     const outputTokens = data.usage?.output_tokens ?? data.usage?.outputTokens ?? 0;
+    const cost = parseCost(data.usage?.cost);
 
     return {
       answers: rawAnswers as { [K in keyof TQuestions]: InferJevAnswer<TQuestions[K]> },
@@ -138,13 +142,14 @@ export class OpenRouterProvider extends JevProviderBase {
       latency_ms: data.latency_ms || elapsed,
       providerUsed: this.providerId,
       provider: this.providerId,
-      modelUsed: effectiveModel,
+      modelUsed: typeof data.model === 'string' && data.model ? data.model : effectiveModel,
       isFallback: false,
       usage: {
         inputTokens,
         outputTokens,
         input_tokens: inputTokens,
-        output_tokens: outputTokens
+        output_tokens: outputTokens,
+        ...(cost !== undefined ? { cost } : {})
       },
       timestamp: Date.now()
     };

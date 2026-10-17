@@ -122,6 +122,12 @@ export interface JevExecutionOptions {
   readonly abortSignal?: AbortSignal;
   /** Minimum calibrated confidence threshold for operational decision gates (e.g. 0.90) */
   readonly minConfidence?: number;
+  /** Base of the exponential backoff between retries, in ms (default 25: tuned for local daemons). */
+  readonly retryBackoffMs?: number;
+  /** Ceiling of the exponential backoff, in ms (default 500). Does not cap a server's Retry-After. */
+  readonly retryMaxBackoffMs?: number;
+  /** Longest Retry-After the client will wait out, in ms (default 10000). A longer one fails at once. */
+  readonly maxRetryAfterMs?: number;
 }
 
 export interface JevImageData {
@@ -166,6 +172,8 @@ export interface JevTokenUsage {
   readonly inputTokens: number;
   readonly outputTokens: number;
   readonly cacheReadTokens?: number;
+  /** Cost the API reported for this call, when it reports one (OpenRouter's usage.cost). Never estimated. */
+  readonly cost?: number;
   readonly input_tokens?: number;
   readonly output_tokens?: number;
 }

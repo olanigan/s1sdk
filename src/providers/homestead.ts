@@ -12,7 +12,7 @@
  * Supports native SDM models (tev1, nanojev) and adapted SLMs (qwen, smollm2, gliner).
  */
 
-import { JevProviderBase, type ProviderMetadata } from './base.js';
+import { JevProviderBase, type ProviderMetadata, isRedirectRefusal, REDIRECT_REFUSED } from './base.js';
 import {
   type JevQuestion,
   type JevDecisionRequest,
@@ -136,9 +136,13 @@ export class HomesteadProvider extends JevProviderBase {
         method: 'POST',
         headers,
         body: JSON.stringify(payload),
+        redirect: 'error',
         signal
       });
     } catch (netErr: any) {
+      if (isRedirectRefusal(netErr)) {
+        throw new JevProviderError(`Homestead S1 daemon ${REDIRECT_REFUSED}`, 0, false, netErr instanceof Error ? netErr : undefined);
+      }
       if (isDefaultPort) {
         const altEndpoint = this.endpoint.replace(':8080/', ':18765/');
         try {
@@ -146,6 +150,7 @@ export class HomesteadProvider extends JevProviderBase {
             method: 'POST',
             headers,
             body: JSON.stringify(payload),
+            redirect: 'error',
             signal
           });
         } catch {

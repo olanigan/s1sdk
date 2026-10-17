@@ -56,6 +56,10 @@ export interface S1ClientOptions {
   readonly timeoutMs?: number;
   /** Max retries for retryable network faults (default: 0) */
   readonly maxRetries?: number;
+  /** Backoff tuning for retries; see JevExecutionOptions. Remote APIs usually want a larger base, e.g. 400. */
+  readonly retryBackoffMs?: number;
+  readonly retryMaxBackoffMs?: number;
+  readonly maxRetryAfterMs?: number;
   /** Initial middlewares to register */
   readonly middlewares?: readonly JevMiddleware[];
 }
@@ -195,6 +199,9 @@ export class S1Client {
     const options: JevExecutionOptions = {
       timeoutMs: this.defaultOptions.timeoutMs,
       maxRetries: this.defaultOptions.maxRetries,
+      retryBackoffMs: this.defaultOptions.retryBackoffMs,
+      retryMaxBackoffMs: this.defaultOptions.retryMaxBackoffMs,
+      maxRetryAfterMs: this.defaultOptions.maxRetryAfterMs,
       ...request.options,
       ...overrideOptions
     };
@@ -390,10 +397,16 @@ export class S1Client {
           throw err;
         }
 
-        // Exponential backoff with jitter: min(500, 25 * 2^attempt) * uniform(0.8, 1.2)
-        const base = Math.min(500, 25 * Math.pow(2, attempt));
+        // A server's Retry-After wins over our own backoff, unless it asks for longer than we are willing to wait.
+        const retryAfterMs = Number.isFinite(err?.retryAfterMs) ? (err.retryAfterMs as number) : undefined;
+        if (retryAfterMs !== undefined && retryAfterMs > (options.maxRetryAfterMs ?? 10_000)) {
+          throw err;
+        }
+
+        // Otherwise exponential backoff with jitter: min(cap, base * 2^attempt) * uniform(0.8, 1.2)
+        const base = Math.min(options.retryMaxBackoffMs ?? 500, (options.retryBackoffMs ?? 25) * Math.pow(2, attempt));
         const jitter = 0.8 + Math.random() * 0.4;
-        const sleepMs = Math.round(base * jitter);
+        const sleepMs = retryAfterMs ?? Math.round(base * jitter);
         await new Promise((res) => setTimeout(res, sleepMs));
       } finally {
         if (timer) {
