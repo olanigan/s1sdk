@@ -68,8 +68,9 @@ export class S1Client {
   private readonly middlewares: JevMiddleware[] = [];
 
   constructor(options: S1ClientOptions = {}) {
+    const isOllama = options.provider === 'ollama';
     this.defaultOptions = {
-      timeoutMs: 10_000,
+      timeoutMs: options.timeoutMs ?? (isOllama ? 30_000 : 10_000),
       maxRetries: 0,
       ...options
     };
