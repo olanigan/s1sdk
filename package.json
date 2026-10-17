@@ -40,6 +40,7 @@
     "LICENSE"
   ],
   "scripts": {
+    "prepare": "tsc",
     "build": "tsc && bun build src/index.ts --outfile dist/index.cjs --format cjs && bun build src/providers/index.ts --outfile dist/providers/index.cjs --format cjs",
     "test": "vitest run",
     "test:watch": "vitest",
