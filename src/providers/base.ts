@@ -7,7 +7,10 @@ import type {
   JevQuestion,
   JevDecisionRequest,
   JevDecisionResponse,
-  JevExecutionOptions
+  JevExecutionOptions,
+  S1ExtractField,
+  S1ExtractRequest,
+  S1ExtractResponse
 } from '../types.js';
 
 export interface ProviderMetadata {
@@ -31,6 +34,17 @@ export abstract class JevProviderBase {
     request: JevDecisionRequest<TState, TQuestions>,
     options?: JevExecutionOptions
   ): Promise<JevDecisionResponse<TQuestions>>;
+
+  /**
+   * Optional structured System-1 extraction method (e.g. Cloudflare Clairic)
+   */
+  extract?<
+    TState,
+    TFields extends Record<string, S1ExtractField>
+  >(
+    request: S1ExtractRequest<TState, TFields>,
+    options?: JevExecutionOptions
+  ): Promise<S1ExtractResponse<TFields>>;
 
   /**
    * Health check for circuit breaking and failover monitors

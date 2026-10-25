@@ -134,7 +134,8 @@ export type JevImageInput = string | JevImageData;
 export const CLOUDFLARE_MODELS = {
   JEV: 'typesafe/jev',
   CLEF: '@cf/cloudflare/clef',
-  CLEF_FLASH: '@cf/cloudflare/clef-flash'
+  CLEF_FLASH: '@cf/cloudflare/clef-flash',
+  CLAIRIC: '@cf/cloudflare/clairic'
 } as const;
 
 export type CloudflareDecisionModel =
@@ -357,3 +358,254 @@ export const S1ProviderError = JevProviderError;
 export type S1ProviderError = JevProviderError;
 export const S1CircuitBreakerOpenError = JevCircuitBreakerOpenError;
 export type S1CircuitBreakerOpenError = JevCircuitBreakerOpenError;
+
+// ==========================================
+// 9. Extraction Primitives & Types (Clairic)
+// ==========================================
+
+export type S1ExtractFieldType =
+  | 'text'
+  | 'number'
+  | 'date'
+  | 'time'
+  | 'datetime'
+  | 'duration'
+  | 'list'
+  | 'estimate'
+  | 'forecast';
+
+export interface S1ExtractTextField {
+  readonly type: 'text';
+  readonly instructions?: string;
+}
+
+export interface S1ExtractNumberOptions {
+  readonly decimals?: number;
+  readonly unit?: string;
+  readonly instructions?: string;
+}
+
+export interface S1ExtractNumberField {
+  readonly type: 'number';
+  readonly instructions?: string;
+  readonly decimals?: number;
+  readonly unit?: string;
+}
+
+export interface S1ExtractDateField {
+  readonly type: 'date';
+  readonly instructions?: string;
+}
+
+export interface S1ExtractTimeField {
+  readonly type: 'time';
+  readonly instructions?: string;
+}
+
+export interface S1ExtractDateTimeField {
+  readonly type: 'datetime';
+  readonly instructions?: string;
+}
+
+export interface S1ExtractDurationField {
+  readonly type: 'duration';
+  readonly instructions?: string;
+}
+
+export interface S1ExtractListField {
+  readonly type: 'list';
+  readonly itemType: 'text' | 'number' | 'date';
+  readonly instructions?: string;
+}
+
+export interface S1ExtractEstimateField {
+  readonly type: 'estimate';
+  readonly min: number;
+  readonly max: number;
+  readonly step?: number;
+  readonly instructions?: string;
+}
+
+export interface S1ExtractForecastField {
+  readonly type: 'forecast';
+  readonly horizon?: string;
+  readonly instructions?: string;
+}
+
+export type S1ExtractField =
+  | S1ExtractTextField
+  | S1ExtractNumberField
+  | S1ExtractDateField
+  | S1ExtractTimeField
+  | S1ExtractDateTimeField
+  | S1ExtractDurationField
+  | S1ExtractListField
+  | S1ExtractEstimateField
+  | S1ExtractForecastField;
+
+export interface S1ExtractSpan {
+  readonly start: number;
+  readonly end: number;
+}
+
+export interface S1ExtractAnswer<T = any> {
+  readonly value: T | null;
+  /** Calibrated confidence score [0.0, 1.0] */
+  readonly confidence: number;
+  /** Calibrated probability that the field is absent or null [0.0, 1.0] */
+  readonly p_null: number;
+  /** Exact character offset span in the input state */
+  readonly span?: S1ExtractSpan;
+  /** Median evaluation for numeric estimate fields */
+  readonly median?: number;
+  /** 80% credible interval [p10, p90] for numeric estimate fields */
+  readonly interval_80?: [number, number];
+  /** Catch-all for extra backend metadata */
+  readonly [key: string]: any;
+}
+
+export type InferExtractValue<F extends S1ExtractField> =
+  F extends S1ExtractTextField
+    ? string
+    : F extends S1ExtractNumberField
+    ? number
+    : F extends S1ExtractDateField
+    ? string
+    : F extends S1ExtractTimeField
+    ? string
+    : F extends S1ExtractDateTimeField
+    ? string
+    : F extends S1ExtractDurationField
+    ? string
+    : F extends S1ExtractListField
+    ? (F['itemType'] extends 'number' ? number[] : string[])
+    : F extends S1ExtractEstimateField
+    ? number
+    : F extends S1ExtractForecastField
+    ? number | Record<string, any>
+    : any;
+
+export type InferExtractAnswer<F extends S1ExtractField> = S1ExtractAnswer<InferExtractValue<F>>;
+
+export interface S1ExtractRequest<
+  TState = unknown,
+  TFields extends Record<string, S1ExtractField> = Record<string, S1ExtractField>
+> {
+  readonly state: TState;
+  readonly fields: TFields;
+  readonly model?: string;
+  readonly images?: readonly JevImageInput[];
+  readonly options?: JevExecutionOptions;
+}
+
+export interface S1ExtractResponse<
+  TFields extends Record<string, S1ExtractField> = Record<string, S1ExtractField>
+> {
+  readonly answers: {
+    [K in keyof TFields]: InferExtractAnswer<TFields[K]>;
+  };
+  readonly latencyMs: number;
+  readonly latency_ms: number;
+  readonly providerUsed: string;
+  readonly provider: string;
+  readonly modelUsed: string;
+  readonly isFallback: boolean;
+  readonly usage?: JevTokenUsage;
+  readonly timestamp: number;
+}
+
+// Extraction Constructor Helpers
+export function extractText(instructions?: string): S1ExtractTextField {
+  return Object.freeze(instructions ? { type: 'text', instructions } : { type: 'text' });
+}
+
+export function extractNumber(
+  options?: S1ExtractNumberOptions | string
+): S1ExtractNumberField {
+  if (typeof options === 'string') {
+    return Object.freeze({ type: 'number', instructions: options });
+  }
+  const { instructions, decimals, unit } = options || {};
+  return Object.freeze({
+    type: 'number',
+    ...(instructions ? { instructions } : {}),
+    ...(decimals !== undefined ? { decimals } : {}),
+    ...(unit !== undefined ? { unit } : {})
+  });
+}
+
+export function extractDate(instructions?: string): S1ExtractDateField {
+  return Object.freeze(instructions ? { type: 'date', instructions } : { type: 'date' });
+}
+
+export function extractTime(instructions?: string): S1ExtractTimeField {
+  return Object.freeze(instructions ? { type: 'time', instructions } : { type: 'time' });
+}
+
+export function extractDateTime(instructions?: string): S1ExtractDateTimeField {
+  return Object.freeze(instructions ? { type: 'datetime', instructions } : { type: 'datetime' });
+}
+
+export function extractDuration(instructions?: string): S1ExtractDurationField {
+  return Object.freeze(instructions ? { type: 'duration', instructions } : { type: 'duration' });
+}
+
+export function extractList(
+  itemType: 'text' | 'number' | 'date' = 'text',
+  instructions?: string
+): S1ExtractListField {
+  return Object.freeze(
+    instructions
+      ? { type: 'list', itemType, instructions }
+      : { type: 'list', itemType }
+  );
+}
+
+export function extractEstimate(
+  min: number,
+  max: number,
+  step?: number,
+  instructions?: string
+): S1ExtractEstimateField {
+  return Object.freeze({
+    type: 'estimate',
+    min,
+    max,
+    ...(step !== undefined ? { step } : {}),
+    ...(instructions ? { instructions } : {})
+  });
+}
+
+export function extractForecast(
+  horizon?: string,
+  instructions?: string
+): S1ExtractForecastField {
+  return Object.freeze({
+    type: 'forecast',
+    ...(horizon ? { horizon } : {}),
+    ...(instructions ? { instructions } : {})
+  });
+}
+
+// Jev Extraction Aliases
+export type JevExtractFieldType = S1ExtractFieldType;
+export type JevExtractTextField = S1ExtractTextField;
+export type JevExtractNumberOptions = S1ExtractNumberOptions;
+export type JevExtractNumberField = S1ExtractNumberField;
+export type JevExtractDateField = S1ExtractDateField;
+export type JevExtractListField = S1ExtractListField;
+export type JevExtractEstimateField = S1ExtractEstimateField;
+export type JevExtractForecastField = S1ExtractForecastField;
+export type JevExtractField = S1ExtractField;
+export type JevExtractSpan = S1ExtractSpan;
+export type JevExtractAnswer<T = any> = S1ExtractAnswer<T>;
+export type InferJevExtractValue<F extends S1ExtractField> = InferExtractValue<F>;
+export type InferJevExtractAnswer<F extends S1ExtractField> = InferExtractAnswer<F>;
+export type JevExtractRequest<
+  TState = unknown,
+  TFields extends Record<string, S1ExtractField> = Record<string, S1ExtractField>
+> = S1ExtractRequest<TState, TFields>;
+export type JevExtractResponse<
+  TFields extends Record<string, S1ExtractField> = Record<string, S1ExtractField>
+> = S1ExtractResponse<TFields>;
+
