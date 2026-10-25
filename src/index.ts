@@ -408,6 +408,7 @@ export class S1Client {
 export * from './types.js';
 export * from './middleware.js';
 export * from './providers/index.js';
+export * from './judge.js';
 export { noul, choice, score };
 
 // Canonical backwards compatibility
