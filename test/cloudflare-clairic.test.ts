@@ -141,13 +141,23 @@ describe('Cloudflare Clairic S1 Extraction Model (@cf/cloudflare/clairic)', () =
       });
     });
 
-    it('creates extractForecast with horizon', () => {
-      const forecast = extractForecast('30d', 'Revenue forecast for next month');
-      expect(forecast).toEqual({
-        type: 'forecast',
-        horizon: '30d',
+    it('creates extractForecast with bounds, horizon and interval', () => {
+      const forecast = extractForecast(0, 10_000, {
+        horizon: 30,
+        interval: 'day',
         instructions: 'Revenue forecast for next month'
       });
+      expect(forecast).toEqual({
+        type: 'forecast',
+        min: 0,
+        max: 10_000,
+        horizon: 30,
+        interval: 'day',
+        instructions: 'Revenue forecast for next month'
+      });
+
+      const objectForm = extractForecast({ min: 0, max: 10, horizon: 3 });
+      expect(objectForm).toEqual({ type: 'forecast', min: 0, max: 10, horizon: 3 });
     });
   });
 
@@ -177,7 +187,7 @@ describe('Cloudflare Clairic S1 Extraction Model (@cf/cloudflare/clairic)', () =
         },
         items: {
           type: 'list',
-          item_type: 'text',
+          items: 'text',
           instructions: 'Purchased items'
         },
         riskScore: {
@@ -209,7 +219,7 @@ describe('Cloudflare Clairic S1 Extraction Model (@cf/cloudflare/clairic)', () =
                 value: 'Acme Health Inc.',
                 confidence: 0.99,
                 p_null: 0.01,
-                span: { start: 10, end: 26 }
+                span: [10, 26]
               },
               invoiceTotal: {
                 value: 4500.5,
@@ -237,7 +247,7 @@ describe('Cloudflare Clairic S1 Extraction Model (@cf/cloudflare/clairic)', () =
         }
       };
 
-      const provider = new CloudflareWorkerProvider(fakeBinding);
+      const provider = new CloudflareWorkerProvider(fakeBinding, CLOUDFLARE_MODELS.CLAIRIC);
       const res = await provider.extract({
         state: 'Invoice from Acme Health Inc. for total $4500.50',
         fields: {
@@ -258,7 +268,7 @@ describe('Cloudflare Clairic S1 Extraction Model (@cf/cloudflare/clairic)', () =
       expect(res.answers.organization.value).toBe('Acme Health Inc.');
       expect(res.answers.organization.confidence).toBe(0.99);
       expect(res.answers.organization.p_null).toBe(0.01);
-      expect(res.answers.organization.span).toEqual({ start: 10, end: 26 });
+      expect(res.answers.organization.span).toEqual([10, 26]);
 
       expect(res.answers.invoiceTotal.value).toBe(4500.5);
       expect(res.answers.invoiceTotal.median).toBe(4500.5);
@@ -294,7 +304,7 @@ describe('Cloudflare Clairic S1 Extraction Model (@cf/cloudflare/clairic)', () =
         }
       };
 
-      const provider = new CloudflareWorkerProvider(fakeBinding);
+      const provider = new CloudflareWorkerProvider(fakeBinding, CLOUDFLARE_MODELS.CLAIRIC);
       await provider.extract({
         state: 'Vehicle registration review',
         fields: {
@@ -307,23 +317,18 @@ describe('Cloudflare Clairic S1 Extraction Model (@cf/cloudflare/clairic)', () =
       expect(capturedPayload.images).toEqual(['data:image/jpeg;base64,abc123456']);
     });
 
-    it('transparently executes extraction when passed via provider.execute() with fields', async () => {
+    it('rejects fields-only requests passed to provider.execute()', async () => {
       const fakeBinding: CloudflareAiBinding = {
-        run: async () => ({
-          answers: {
-            city: { value: 'Austin', confidence: 0.95, p_null: 0.05 }
-          }
-        })
+        run: async () => ({ answers: { city: { value: 'Austin' } } })
       };
 
-      const provider = new CloudflareWorkerProvider(fakeBinding);
-      const res = await provider.execute({
-        state: 'Patient located in Austin, TX',
-        fields: { city: extractText() }
-      } as any);
-
-      expect(res.answers.city.value).toBe('Austin');
-      expect(res.answers.city.confidence).toBe(0.95);
+      const provider = new CloudflareWorkerProvider(fakeBinding, CLOUDFLARE_MODELS.CLAIRIC);
+      await expect(
+        provider.execute({
+          state: 'Patient located in Austin, TX',
+          fields: { city: extractText() }
+        } as any)
+      ).rejects.toThrow('execute() requires a "questions" object');
     });
 
     it('handles binding error gracefully and throws JevProviderError', async () => {
@@ -333,7 +338,7 @@ describe('Cloudflare Clairic S1 Extraction Model (@cf/cloudflare/clairic)', () =
         }
       };
 
-      const provider = new CloudflareWorkerProvider(fakeBinding);
+      const provider = new CloudflareWorkerProvider(fakeBinding, CLOUDFLARE_MODELS.CLAIRIC);
       await expect(
         provider.extract({
           state: 'test',
@@ -349,7 +354,7 @@ describe('Cloudflare Clairic S1 Extraction Model (@cf/cloudflare/clairic)', () =
         })
       };
 
-      const provider = new CloudflareWorkerProvider(fakeBinding);
+      const provider = new CloudflareWorkerProvider(fakeBinding, CLOUDFLARE_MODELS.CLAIRIC);
       await expect(
         provider.extract({
           state: 'test',
@@ -414,13 +419,13 @@ describe('Cloudflare Clairic S1 Extraction Model (@cf/cloudflare/clairic)', () =
               value: 'Hypertension',
               confidence: 0.94,
               p_null: 0.06,
-              span: { start: 20, end: 32 }
+              span: [20, 32]
             }
           }
         })
       };
 
-      const client = new S1Client({ aiBinding: fakeBinding });
+      const client = new S1Client({ aiBinding: fakeBinding, model: CLOUDFLARE_MODELS.CLAIRIC });
       const res = await client.extract(
         'Patient presents with Hypertension and elevated BP',
         {
@@ -431,7 +436,7 @@ describe('Cloudflare Clairic S1 Extraction Model (@cf/cloudflare/clairic)', () =
 
       expect(res.answers.diagnosis.value).toBe('Hypertension');
       expect(res.answers.diagnosis.confidence).toBe(0.94);
-      expect(res.answers.diagnosis.span).toEqual({ start: 20, end: 32 });
+      expect(res.answers.diagnosis.span).toEqual([20, 32]);
     });
 
     it('supports client.extract(requestEnvelope, options) object syntax', async () => {
@@ -448,7 +453,7 @@ describe('Cloudflare Clairic S1 Extraction Model (@cf/cloudflare/clairic)', () =
         })
       };
 
-      const client = new S1Client({ aiBinding: fakeBinding });
+      const client = new S1Client({ aiBinding: fakeBinding, model: CLOUDFLARE_MODELS.CLAIRIC });
       const res = await client.extract({
         state: 'Assessment grade: 88%',
         fields: {
@@ -469,7 +474,7 @@ describe('Cloudflare Clairic S1 Extraction Model (@cf/cloudflare/clairic)', () =
         })
       };
 
-      const client = new JevClient({ aiBinding: fakeBinding });
+      const client = new JevClient({ aiBinding: fakeBinding, model: CLOUDFLARE_MODELS.CLAIRIC });
       const res = await client.extract('Incident resolved successfully', {
         status: extractText('Incident resolution status')
       });
@@ -489,5 +494,227 @@ describe('Cloudflare Clairic S1 Extraction Model (@cf/cloudflare/clairic)', () =
         client.extract('some text', { name: extractText() })
       ).rejects.toThrow('Active provider "homestead" does not support structured extraction');
     });
+  });
+});
+
+// ==========================================
+// 8. Contract fixtures (live schemas, fetched 2026-10-28)
+// ==========================================
+import { readFileSync } from 'node:fs';
+import { JevValidationError } from '../src/index.js';
+
+const readFixture = (name: string): any =>
+  JSON.parse(readFileSync(new URL(`./fixtures/contracts/${name}`, import.meta.url), 'utf8'));
+
+describe('Clairic contract fixtures', () => {
+  const inputSchema = readFixture('clairic-input.json');
+  const outputSchema = readFixture('clairic-output.json');
+
+  it('pins the fixture to the schema version the SDK implements', () => {
+    expect(inputSchema.required).toEqual(expect.arrayContaining(['model', 'fields']));
+    expect(inputSchema.properties.model.pattern).toBe('^(clairic|@cf/cloudflare/clairic)$');
+    expect(inputSchema.properties.images.maxItems).toBe(4);
+    expect(outputSchema.required).toEqual(expect.arrayContaining(['model', 'answers', 'truncated', 'usage']));
+  });
+
+  it('emits `items` (not `item_type`) for list fields, as the schema requires', () => {
+    const sanitized = sanitizeFieldsForCloudflare({
+      tags: extractList('text', 'Tags')
+    } as any);
+    expect(sanitized.tags.items).toBe('text');
+    expect(sanitized.tags.item_type).toBeUndefined();
+    expect(inputSchema.properties.fields.additionalProperties.properties.items.enum).toContain('text');
+  });
+
+  it('emits every supported field option with schema key names', () => {
+    const sanitized = sanitizeFieldsForCloudflare({
+      qty: extractNumber({ integer: true, nullThreshold: 0.8 }),
+      when: extractDuration(undefined),
+      scores: extractList('number', 'Scores', { integer: true }),
+      est: extractEstimate(0, 100, { step: 5, scale: 'log', nullThreshold: 0.6 }),
+      fc: extractForecast({
+        min: 0,
+        max: 1000,
+        horizon: 12,
+        interval: 'month',
+        step: 'month',
+        scale: 'linear'
+      })
+    } as any);
+
+    expect(sanitized.qty).toEqual({ type: 'number', integer: true, null_threshold: 0.8 });
+    expect(sanitized.scores).toEqual({ type: 'list', items: 'number', instructions: 'Scores', integer: true });
+    expect(sanitized.est).toEqual({
+      type: 'estimate',
+      min: 0,
+      max: 100,
+      step: 5,
+      scale: 'log',
+      null_threshold: 0.6
+    });
+    expect(sanitized.fc).toEqual({
+      type: 'forecast',
+      min: 0,
+      max: 1000,
+      horizon: 12,
+      interval: 'month',
+      step: 'month',
+      scale: 'linear'
+    });
+    for (const key of Object.keys(sanitized)) {
+      expect(inputSchema.properties.fields.additionalProperties.required).toEqual(['type']);
+    }
+  });
+
+  it('maps span arrays, spans, p10/p90, truncated and full usage from a schema-shaped response', async () => {
+    const fakeBinding: CloudflareAiBinding = {
+      run: async () => ({
+        model: 'clairic',
+        answers: {
+          vendor: {
+            type: 'text',
+            value: 'Acme Health Inc.',
+            p_null: 0.01,
+            confidence: 0.99,
+            span: [12, 28]
+          },
+          tags: {
+            type: 'list',
+            value: ['urgent', 'oncology'],
+            p_null: 0.05,
+            confidence: 0.95,
+            spans: [[0, 6], [8, 16]]
+          },
+          total: {
+            type: 'estimate',
+            value: 4500.5,
+            p_null: 0.02,
+            confidence: 0.98,
+            mean: 4499.8,
+            median: 4500.5,
+            p10: 4400,
+            p90: 4600,
+            p_below: 0.01,
+            p_above: 0.02
+          },
+          po: {
+            type: 'text',
+            value: null,
+            guess: 'PO-1042',
+            p_null: 0.91,
+            confidence: 0.09
+          }
+        },
+        truncated: true,
+        state_text: '…the state that spans index into…',
+        usage: {
+          state_tokens: 120,
+          image_tokens: 8,
+          schema_tokens: 44,
+          input_tokens: 172,
+          output_tokens: 0,
+          passes: 3
+        }
+      })
+    };
+
+    const provider = new CloudflareWorkerProvider(fakeBinding, CLOUDFLARE_MODELS.CLAIRIC);
+    const res = await provider.extract({
+      state: 'Invoice from Acme Health Inc.',
+      fields: {
+        vendor: extractText(),
+        tags: extractList('text'),
+        total: extractEstimate(0, 10_000),
+        po: extractText()
+      }
+    });
+
+    expect(res.answers.vendor.span).toEqual([12, 28]);
+    expect(res.answers.tags.spans).toEqual([[0, 6], [8, 16]]);
+    expect(res.answers.total.interval_80).toEqual([4400, 4600]);
+    expect(res.answers.total.p10).toBe(4400);
+    expect(res.answers.total.p90).toBe(4600);
+    expect(res.answers.total.p_below).toBe(0.01);
+    expect(res.answers.total.p_above).toBe(0.02);
+    expect(res.answers.po.value).toBeNull();
+    expect(res.answers.po.guess).toBe('PO-1042');
+
+    expect(res.truncated).toBe(true);
+    expect(res.state_text).toBe('…the state that spans index into…');
+    expect(res.usage?.passes).toBe(3);
+    expect(res.usage?.state_tokens).toBe(120);
+    expect(res.usage?.image_tokens).toBe(8);
+    expect(res.usage?.schema_tokens).toBe(44);
+    expect(res.usage?.stateTokens).toBe(120);
+  });
+
+  it('forwards reference_date and options.include_quantiles/return_state_text', async () => {
+    let captured: any = null;
+    const provider = new CloudflareWorkerProvider(
+      {
+        run: async (_model, payload) => {
+          captured = payload;
+          return { answers: {}, truncated: false, usage: { input_tokens: 1, output_tokens: 0 } };
+        }
+      },
+      CLOUDFLARE_MODELS.CLAIRIC
+    );
+
+    await provider.extract({
+      state: 'March 4 invoice',
+      fields: { date: extractDate() },
+      referenceDate: '2026-01-01',
+      extractOptions: { includeQuantiles: true, returnStateText: true }
+    });
+
+    expect(captured.reference_date).toBe('2026-01-01');
+    expect(captured.options).toEqual({ include_quantiles: true, return_state_text: true });
+  });
+
+  it('requires an explicit Clairic model (D1a) instead of swapping clef', async () => {
+    const provider = new CloudflareWorkerProvider(
+      { run: async () => ({ answers: {} }) },
+      CLOUDFLARE_MODELS.CLEF_FLASH
+    );
+    await expect(
+      provider.extract({ state: 'x', fields: { a: extractText() } })
+    ).rejects.toBeInstanceOf(JevValidationError);
+
+    const explicit = new CloudflareWorkerProvider(
+      { run: async () => ({ answers: {}, truncated: false, usage: { input_tokens: 1, output_tokens: 0 } }) },
+      CLOUDFLARE_MODELS.CLAIRIC
+    );
+    await expect(
+      explicit.extract({ state: 'x', fields: { a: extractText() } })
+    ).resolves.toMatchObject({ truncated: false });
+  });
+
+  it('rejects media that violates Clairic caps before dispatch (A11)', async () => {
+    let calls = 0;
+    const provider = new CloudflareWorkerProvider(
+      {
+        run: async () => {
+          calls++;
+          return { answers: {}, truncated: false, usage: { input_tokens: 1, output_tokens: 0 } };
+        }
+      },
+      CLOUDFLARE_MODELS.CLAIRIC
+    );
+    const tiny = 'data:image/png;base64,aGVsbG8=';
+
+    await expect(
+      provider.extract({ state: 'x', fields: { a: extractText() }, images: [tiny, tiny, tiny, tiny, tiny] })
+    ).rejects.toThrow('at most 4 images');
+
+    await expect(
+      provider.extract({ state: 'x', fields: { a: extractText() }, images: ['https://example.com/a.png'] })
+    ).rejects.toThrow('base64 data URL');
+
+    const oversize = `data:image/png;base64,${'A'.repeat(6 * 1024 * 1024)}`;
+    await expect(
+      provider.extract({ state: 'x', fields: { a: extractText() }, images: [oversize] })
+    ).rejects.toThrow('per-image limit');
+
+    expect(calls).toBe(0);
   });
 });

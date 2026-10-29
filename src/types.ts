@@ -374,62 +374,87 @@ export type S1ExtractFieldType =
   | 'estimate'
   | 'forecast';
 
-export interface S1ExtractTextField {
+/**
+ * Options shared by every Clairic field type. `nullThreshold` is the null
+ * probability above which the API returns `value: null` (schema default 0.5).
+ */
+export interface S1ExtractFieldOptions {
+  readonly instructions?: string;
+  readonly nullThreshold?: number;
+}
+
+export interface S1ExtractTextField extends S1ExtractFieldOptions {
   readonly type: 'text';
-  readonly instructions?: string;
 }
 
-export interface S1ExtractNumberOptions {
+export interface S1ExtractNumberOptions extends S1ExtractFieldOptions {
   readonly decimals?: number;
   readonly unit?: string;
-  readonly instructions?: string;
+  /** Emit whole numbers only (schema `integer`). */
+  readonly integer?: boolean;
 }
 
-export interface S1ExtractNumberField {
+export interface S1ExtractNumberField extends S1ExtractNumberOptions {
   readonly type: 'number';
-  readonly instructions?: string;
-  readonly decimals?: number;
-  readonly unit?: string;
 }
 
-export interface S1ExtractDateField {
+export interface S1ExtractDateField extends S1ExtractFieldOptions {
   readonly type: 'date';
-  readonly instructions?: string;
 }
 
-export interface S1ExtractTimeField {
+export interface S1ExtractTimeField extends S1ExtractFieldOptions {
   readonly type: 'time';
-  readonly instructions?: string;
 }
 
-export interface S1ExtractDateTimeField {
+export interface S1ExtractDateTimeField extends S1ExtractFieldOptions {
   readonly type: 'datetime';
-  readonly instructions?: string;
 }
 
-export interface S1ExtractDurationField {
+export interface S1ExtractDurationField extends S1ExtractFieldOptions {
   readonly type: 'duration';
-  readonly instructions?: string;
+  /** One of seconds, minutes, hours, days, weeks, months, years (API default seconds). */
+  readonly unit?: string;
+  readonly integer?: boolean;
+  readonly decimals?: number;
 }
 
-export interface S1ExtractListField {
+export interface S1ExtractListField extends S1ExtractFieldOptions {
   readonly type: 'list';
   readonly itemType: 'text' | 'number' | 'date';
-  readonly instructions?: string;
+  readonly integer?: boolean;
+  readonly decimals?: number;
 }
 
-export interface S1ExtractEstimateField {
+export type S1ExtractGridStep = number | 'month' | 'year';
+export type S1ExtractScale = 'linear' | 'log';
+
+export interface S1ExtractEstimateField extends S1ExtractFieldOptions {
   readonly type: 'estimate';
-  readonly min: number;
-  readonly max: number;
-  readonly step?: number;
-  readonly instructions?: string;
+  readonly min: number | string;
+  readonly max: number | string;
+  readonly step?: S1ExtractGridStep;
+  readonly scale?: S1ExtractScale;
 }
 
-export interface S1ExtractForecastField {
+export type S1ExtractForecastInterval =
+  | 'step'
+  | 'minute'
+  | 'hour'
+  | 'day'
+  | 'week'
+  | 'month'
+  | 'quarter'
+  | 'year';
+
+export interface S1ExtractForecastField extends S1ExtractFieldOptions {
   readonly type: 'forecast';
-  readonly horizon?: string;
-  readonly instructions?: string;
+  readonly min: number | string;
+  readonly max: number | string;
+  /** Number of steps to forecast (schema 1–64). */
+  readonly horizon?: number;
+  readonly interval?: S1ExtractForecastInterval;
+  readonly step?: S1ExtractGridStep;
+  readonly scale?: S1ExtractScale;
 }
 
 export type S1ExtractField =
@@ -443,10 +468,12 @@ export type S1ExtractField =
   | S1ExtractEstimateField
   | S1ExtractForecastField;
 
-export interface S1ExtractSpan {
-  readonly start: number;
-  readonly end: number;
-}
+/**
+ * Clairic returns spans as a two-element array, not an object:
+ * `"span": [8, 16]`. Keep the tuple shape so offset math works without an
+ * adapter layer.
+ */
+export type S1ExtractSpan = readonly [start: number, end: number];
 
 export interface S1ExtractAnswer<T = any> {
   readonly value: T | null;
@@ -454,12 +481,30 @@ export interface S1ExtractAnswer<T = any> {
   readonly confidence: number;
   /** Calibrated probability that the field is absent or null [0.0, 1.0] */
   readonly p_null: number;
+  /** Best-effort value when `value` is null/ambiguous */
+  readonly guess?: T | null;
   /** Exact character offset span in the input state */
   readonly span?: S1ExtractSpan;
+  /** Per-item spans for list fields */
+  readonly spans?: readonly S1ExtractSpan[];
+  /** Mean evaluation for numeric estimate fields */
+  readonly mean?: number;
   /** Median evaluation for numeric estimate fields */
   readonly median?: number;
+  /** 10th percentile for numeric estimate fields */
+  readonly p10?: number;
+  /** 90th percentile for numeric estimate fields */
+  readonly p90?: number;
   /** 80% credible interval [p10, p90] for numeric estimate fields */
-  readonly interval_80?: [number, number];
+  readonly interval_80?: readonly [number, number];
+  /** Probability the estimate is below the grid minimum */
+  readonly p_below?: number;
+  /** Probability the estimate is above the grid maximum */
+  readonly p_above?: number;
+  /** 99 percentiles when `includeQuantiles` is requested */
+  readonly quantiles?: readonly number[];
+  /** Per-step estimates for forecast fields */
+  readonly steps?: readonly unknown[];
   /** Catch-all for extra backend metadata */
   readonly [key: string]: any;
 }
@@ -487,15 +532,39 @@ export type InferExtractValue<F extends S1ExtractField> =
 
 export type InferExtractAnswer<F extends S1ExtractField> = S1ExtractAnswer<InferExtractValue<F>>;
 
+/** Clairic-only request options (schema `options`). */
+export interface S1ExtractOptions {
+  /** Return 99 percentiles for estimate fields. */
+  readonly includeQuantiles?: boolean;
+  /** Return the exact text that spans index into. */
+  readonly returnStateText?: boolean;
+}
+
 export interface S1ExtractRequest<
   TState = unknown,
   TFields extends Record<string, S1ExtractField> = Record<string, S1ExtractField>
 > {
   readonly state: TState;
   readonly fields: TFields;
+  /** Must resolve to Clairic; `extract()` no longer swaps decision models implicitly. */
   readonly model?: string;
   readonly images?: readonly JevImageInput[];
+  /** ISO date that anchors dates written without a year. */
+  readonly referenceDate?: string;
+  /** Clairic payload options (`include_quantiles`, `return_state_text`). */
+  readonly extractOptions?: S1ExtractOptions;
+  /** Execution options (timeout, retries, abort). */
   readonly options?: JevExecutionOptions;
+}
+
+export interface S1ExtractUsage extends JevTokenUsage {
+  readonly state_tokens?: number;
+  readonly image_tokens?: number;
+  readonly schema_tokens?: number;
+  readonly passes?: number;
+  readonly stateTokens?: number;
+  readonly imageTokens?: number;
+  readonly schemaTokens?: number;
 }
 
 export interface S1ExtractResponse<
@@ -510,7 +579,11 @@ export interface S1ExtractResponse<
   readonly provider: string;
   readonly modelUsed: string;
   readonly isFallback: boolean;
-  readonly usage?: JevTokenUsage;
+  /** True when Clairic split the state or schema and hit the pass limit. */
+  readonly truncated: boolean;
+  /** Present when `extractOptions.returnStateText` is set. */
+  readonly state_text?: string;
+  readonly usage?: S1ExtractUsage;
   readonly timestamp: number;
 }
 
@@ -525,12 +598,14 @@ export function extractNumber(
   if (typeof options === 'string') {
     return Object.freeze({ type: 'number', instructions: options });
   }
-  const { instructions, decimals, unit } = options || {};
+  const { instructions, decimals, unit, integer, nullThreshold } = options || {};
   return Object.freeze({
     type: 'number',
     ...(instructions ? { instructions } : {}),
     ...(decimals !== undefined ? { decimals } : {}),
-    ...(unit !== undefined ? { unit } : {})
+    ...(unit !== undefined ? { unit } : {}),
+    ...(integer !== undefined ? { integer } : {}),
+    ...(nullThreshold !== undefined ? { nullThreshold } : {})
   });
 }
 
@@ -550,40 +625,93 @@ export function extractDuration(instructions?: string): S1ExtractDurationField {
   return Object.freeze(instructions ? { type: 'duration', instructions } : { type: 'duration' });
 }
 
+export interface S1ExtractListOptions extends S1ExtractFieldOptions {
+  readonly integer?: boolean;
+  readonly decimals?: number;
+}
+
 export function extractList(
   itemType: 'text' | 'number' | 'date' = 'text',
-  instructions?: string
+  instructions?: string,
+  options?: S1ExtractListOptions
 ): S1ExtractListField {
-  return Object.freeze(
-    instructions
-      ? { type: 'list', itemType, instructions }
-      : { type: 'list', itemType }
-  );
+  return Object.freeze({
+    type: 'list',
+    itemType,
+    ...(instructions ? { instructions } : {}),
+    ...(options?.integer !== undefined ? { integer: options.integer } : {}),
+    ...(options?.decimals !== undefined ? { decimals: options.decimals } : {}),
+    ...(options?.nullThreshold !== undefined ? { nullThreshold: options.nullThreshold } : {})
+  });
+}
+
+export interface S1ExtractEstimateOptions {
+  readonly step?: S1ExtractGridStep;
+  readonly scale?: S1ExtractScale;
+  readonly nullThreshold?: number;
+  readonly instructions?: string;
 }
 
 export function extractEstimate(
-  min: number,
-  max: number,
-  step?: number,
+  min: number | string,
+  max: number | string,
+  stepOrOptions?: S1ExtractGridStep | S1ExtractEstimateOptions,
   instructions?: string
 ): S1ExtractEstimateField {
+  const options: S1ExtractEstimateOptions =
+    stepOrOptions !== null && typeof stepOrOptions === 'object'
+      ? stepOrOptions
+      : {
+          ...(stepOrOptions !== undefined ? { step: stepOrOptions } : {}),
+          ...(instructions ? { instructions } : {})
+        };
   return Object.freeze({
     type: 'estimate',
     min,
     max,
-    ...(step !== undefined ? { step } : {}),
-    ...(instructions ? { instructions } : {})
+    ...(options.step !== undefined ? { step: options.step } : {}),
+    ...(options.scale !== undefined ? { scale: options.scale } : {}),
+    ...(options.nullThreshold !== undefined ? { nullThreshold: options.nullThreshold } : {}),
+    ...(options.instructions ? { instructions: options.instructions } : {})
   });
 }
 
+export interface S1ExtractForecastOptions {
+  readonly min: number | string;
+  readonly max: number | string;
+  readonly horizon?: number;
+  readonly interval?: S1ExtractForecastInterval;
+  readonly step?: S1ExtractGridStep;
+  readonly scale?: S1ExtractScale;
+  readonly nullThreshold?: number;
+  readonly instructions?: string;
+}
+
+export function extractForecast(options: S1ExtractForecastOptions): S1ExtractForecastField;
 export function extractForecast(
-  horizon?: string,
-  instructions?: string
+  min: number | string,
+  max: number | string,
+  options?: Omit<S1ExtractForecastOptions, 'min' | 'max'>
+): S1ExtractForecastField;
+export function extractForecast(
+  minOrOptions: number | string | S1ExtractForecastOptions,
+  max?: number | string,
+  options?: Omit<S1ExtractForecastOptions, 'min' | 'max'>
 ): S1ExtractForecastField {
+  const resolved: S1ExtractForecastOptions =
+    typeof minOrOptions === 'object'
+      ? minOrOptions
+      : { min: minOrOptions, max: max as number | string, ...(options || {}) };
   return Object.freeze({
     type: 'forecast',
-    ...(horizon ? { horizon } : {}),
-    ...(instructions ? { instructions } : {})
+    min: resolved.min,
+    max: resolved.max,
+    ...(resolved.horizon !== undefined ? { horizon: resolved.horizon } : {}),
+    ...(resolved.interval !== undefined ? { interval: resolved.interval } : {}),
+    ...(resolved.step !== undefined ? { step: resolved.step } : {}),
+    ...(resolved.scale !== undefined ? { scale: resolved.scale } : {}),
+    ...(resolved.nullThreshold !== undefined ? { nullThreshold: resolved.nullThreshold } : {}),
+    ...(resolved.instructions ? { instructions: resolved.instructions } : {})
   });
 }
 
@@ -598,6 +726,8 @@ export type JevExtractEstimateField = S1ExtractEstimateField;
 export type JevExtractForecastField = S1ExtractForecastField;
 export type JevExtractField = S1ExtractField;
 export type JevExtractSpan = S1ExtractSpan;
+export type JevExtractOptions = S1ExtractOptions;
+export type JevExtractUsage = S1ExtractUsage;
 export type JevExtractAnswer<T = any> = S1ExtractAnswer<T>;
 export type InferJevExtractValue<F extends S1ExtractField> = InferExtractValue<F>;
 export type InferJevExtractAnswer<F extends S1ExtractField> = InferExtractAnswer<F>;

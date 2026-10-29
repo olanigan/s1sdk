@@ -143,6 +143,60 @@ const s1 = new S1Client({
 });
 ```
 
+### Structured Extraction (`@cf/cloudflare/clairic`)
+
+`client.extract()` is the only extraction entry point. It requires an
+**explicit Clairic model** — decision models (`clef`, `clef-flash`, `jev`) are
+never swapped implicitly, so a configured model cannot silently become a
+different bill.
+
+```typescript
+import { S1Client, CLOUDFLARE_MODELS } from 's1sdk';
+import {
+  extractText,
+  extractNumber,
+  extractDate,
+  extractList,
+  extractEstimate
+} from 's1sdk';
+
+const s1 = new S1Client({
+  aiBinding: env.AI,
+  model: CLOUDFLARE_MODELS.CLAIRIC // required for extract()
+});
+
+const res = await s1.extract({
+  state: 'Invoice INV-1042 from Acme Health Inc., total USD 4500.50, due 2026-03-04',
+  referenceDate: '2026-01-01',            // anchors dates written without a year
+  fields: {
+    vendor: extractText('Vendor organization name'),
+    total: extractNumber({ decimals: 2, unit: 'USD' }),
+    dueDate: extractDate(),
+    tags: extractList('text', 'Invoice tags'),
+    confidenceBand: extractEstimate(0, 1, { step: 0.01 })
+  },
+  extractOptions: { returnStateText: true }
+});
+
+// Spans are [start, end] tuples, matching the API.
+const [start, end] = res.answers.vendor.span ?? [0, 0];
+console.log(res.state_text?.slice(start, end)); // "Acme Health Inc."
+console.log(res.truncated);                      // true if passes were cut
+console.log(res.usage?.passes);                  // e.g. 3 for a split schema
+```
+
+Field types: `text`, `number`, `date`, `time`, `datetime`, `duration`, `list`,
+`estimate`, `forecast`. Field options map to the API contract:
+`integer`, `decimals`, `unit`, `scale`, `nullThreshold`, `step`, `horizon`,
+`interval`. Lists emit `items`; estimates expose `p10`/`p90` plus a derived
+`interval_80`; responses surface `guess`, `truncated`, `state_text`, and the
+full usage breakdown (`state_tokens`, `image_tokens`, `schema_tokens`,
+`passes`).
+
+Images are validated client-side before dispatch: at most 4, 4 MiB each,
+8 MiB decoded total, as base64 data URLs or `{ content_type, base64 }`.
+Nothing is estimated locally — `res.usage` is the server-reported usage.
+
 ---
 
 ## 5. Non-Blocking Middleware Pipeline
@@ -217,6 +271,7 @@ Explore the complete multi-provider customer service routing application in [`ex
 * [**03-cloudflare-worker-customer-service/**](./examples/03-cloudflare-worker-customer-service): Sub-15ms edge routing via `env.AI` binding
 * [**04-offline-fallback-resilience.ts**](./examples/04-offline-fallback-resilience.ts): Transparent error handling & middleware failover
 * [**05-homerouter-v1-1-agentic-dispatch.ts**](./examples/05-homerouter-v1-1-agentic-dispatch.ts): Sub-1.2ms local agentic dispatch via HomeRouter S1 v1.1
+* [**07-clairic-invoice-extraction.ts**](./examples/07-clairic-invoice-extraction.ts): Typed invoice extraction with Clairic spans, estimates and usage
 
 Run the resilience failover demo:
 ```bash
