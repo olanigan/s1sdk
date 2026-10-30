@@ -7,7 +7,7 @@ import {
   normalizeCloudflareModel,
   normalizeClairicAnswer,
   sanitizeFieldsForCloudflare,
-  CloudflareWorkerProvider,
+  CloudflareProvider,
   extractText,
   extractNumber,
   extractDate,
@@ -44,7 +44,7 @@ describe('Cloudflare Clairic S1 Extraction Model (@cf/cloudflare/clairic)', () =
     it('normalizes "clairic" to @cf/cloudflare/clairic with payloadModel: "clairic"', () => {
       const normalized = normalizeCloudflareModel('clairic');
       expect(normalized).toEqual({
-        bindingModel: '@cf/cloudflare/clairic',
+        modelId: '@cf/cloudflare/clairic',
         payloadModel: 'clairic'
       });
     });
@@ -52,22 +52,22 @@ describe('Cloudflare Clairic S1 Extraction Model (@cf/cloudflare/clairic)', () =
     it('normalizes "@cf/cloudflare/clairic" to @cf/cloudflare/clairic with payloadModel: "clairic"', () => {
       const normalized = normalizeCloudflareModel('@cf/cloudflare/clairic');
       expect(normalized).toEqual({
-        bindingModel: '@cf/cloudflare/clairic',
+        modelId: '@cf/cloudflare/clairic',
         payloadModel: 'clairic'
       });
     });
 
     it('preserves existing normalization for decision models (clef, clef-flash, jev)', () => {
       expect(normalizeCloudflareModel('clef-flash')).toEqual({
-        bindingModel: '@cf/cloudflare/clef-flash',
+        modelId: '@cf/cloudflare/clef-flash',
         payloadModel: 'clef-flash'
       });
       expect(normalizeCloudflareModel('@cf/cloudflare/clef')).toEqual({
-        bindingModel: '@cf/cloudflare/clef',
+        modelId: '@cf/cloudflare/clef',
         payloadModel: 'clef'
       });
       expect(normalizeCloudflareModel('typesafe/jev')).toEqual({
-        bindingModel: 'typesafe/jev',
+        modelId: 'typesafe/jev',
         payloadModel: undefined
       });
     });
@@ -203,9 +203,9 @@ describe('Cloudflare Clairic S1 Extraction Model (@cf/cloudflare/clairic)', () =
   });
 
   // ==========================================
-  // 5. CloudflareWorkerProvider Extraction Execution
+  // 5. CloudflareProvider Extraction Execution
   // ==========================================
-  describe('CloudflareWorkerProvider Extraction Execution', () => {
+  describe('CloudflareProvider Extraction Execution', () => {
     it('executes extraction request via aiBinding.run(@cf/cloudflare/clairic, ...)', async () => {
       let capturedModel = '';
       let capturedPayload: any = null;
@@ -248,7 +248,7 @@ describe('Cloudflare Clairic S1 Extraction Model (@cf/cloudflare/clairic)', () =
         }
       };
 
-      const provider = new CloudflareWorkerProvider(fakeBinding, CLOUDFLARE_MODELS.CLAIRIC);
+      const provider = new CloudflareProvider(fakeBinding, CLOUDFLARE_MODELS.CLAIRIC);
       const res = await provider.extract({
         state: 'Invoice from Acme Health Inc. for total $4500.50',
         fields: {
@@ -305,7 +305,7 @@ describe('Cloudflare Clairic S1 Extraction Model (@cf/cloudflare/clairic)', () =
         }
       };
 
-      const provider = new CloudflareWorkerProvider(fakeBinding, CLOUDFLARE_MODELS.CLAIRIC);
+      const provider = new CloudflareProvider(fakeBinding, CLOUDFLARE_MODELS.CLAIRIC);
       await provider.extract({
         state: 'Vehicle registration review',
         fields: {
@@ -323,7 +323,7 @@ describe('Cloudflare Clairic S1 Extraction Model (@cf/cloudflare/clairic)', () =
         run: async () => ({ answers: { city: { value: 'Austin' } } })
       };
 
-      const provider = new CloudflareWorkerProvider(fakeBinding, CLOUDFLARE_MODELS.CLAIRIC);
+      const provider = new CloudflareProvider(fakeBinding, CLOUDFLARE_MODELS.CLAIRIC);
       await expect(
         provider.execute({
           state: 'Patient located in Austin, TX',
@@ -339,7 +339,7 @@ describe('Cloudflare Clairic S1 Extraction Model (@cf/cloudflare/clairic)', () =
         }
       };
 
-      const provider = new CloudflareWorkerProvider(fakeBinding, CLOUDFLARE_MODELS.CLAIRIC);
+      const provider = new CloudflareProvider(fakeBinding, CLOUDFLARE_MODELS.CLAIRIC);
       await expect(
         provider.extract({
           state: 'test',
@@ -355,7 +355,7 @@ describe('Cloudflare Clairic S1 Extraction Model (@cf/cloudflare/clairic)', () =
         })
       };
 
-      const provider = new CloudflareWorkerProvider(fakeBinding, CLOUDFLARE_MODELS.CLAIRIC);
+      const provider = new CloudflareProvider(fakeBinding, CLOUDFLARE_MODELS.CLAIRIC);
       await expect(
         provider.extract({
           state: 'test',
@@ -391,7 +391,7 @@ describe('Cloudflare Clairic S1 Extraction Model (@cf/cloudflare/clairic)', () =
         })
       };
 
-      const provider = new CloudflareWorkerProvider(fakeBinding, CLOUDFLARE_MODELS.CLEF_FLASH);
+      const provider = new CloudflareProvider(fakeBinding, CLOUDFLARE_MODELS.CLEF_FLASH);
       const res = await provider.execute({
         state: 'click here immediately to verify account',
         questions: {
@@ -619,7 +619,7 @@ describe('Clairic contract fixtures', () => {
       })
     };
 
-    const provider = new CloudflareWorkerProvider(fakeBinding, CLOUDFLARE_MODELS.CLAIRIC);
+    const provider = new CloudflareProvider(fakeBinding, CLOUDFLARE_MODELS.CLAIRIC);
     const res = await provider.extract({
       state: 'Invoice from Acme Health Inc.',
       fields: {
@@ -680,7 +680,7 @@ describe('Clairic contract fixtures', () => {
       })
     };
 
-    const provider = new CloudflareWorkerProvider(fakeBinding, CLOUDFLARE_MODELS.CLAIRIC);
+    const provider = new CloudflareProvider(fakeBinding, CLOUDFLARE_MODELS.CLAIRIC);
     const res = await provider.extract({
       state: 'Estimated 2025 spend around 2400 USD, likely between 2000 and 2900.',
       fields: { spend: extractEstimate(0, 100_000) }
@@ -708,7 +708,7 @@ describe('Clairic contract fixtures', () => {
 
   it('forwards reference_date and options.include_quantiles/return_state_text', async () => {
     let captured: any = null;
-    const provider = new CloudflareWorkerProvider(
+    const provider = new CloudflareProvider(
       {
         run: async (_model, payload) => {
           captured = payload;
@@ -730,7 +730,7 @@ describe('Clairic contract fixtures', () => {
   });
 
   it('requires an explicit Clairic model (D1a) instead of swapping clef', async () => {
-    const provider = new CloudflareWorkerProvider(
+    const provider = new CloudflareProvider(
       { run: async () => ({ answers: {} }) },
       CLOUDFLARE_MODELS.CLEF_FLASH
     );
@@ -738,7 +738,7 @@ describe('Clairic contract fixtures', () => {
       provider.extract({ state: 'x', fields: { a: extractText() } })
     ).rejects.toBeInstanceOf(JevValidationError);
 
-    const explicit = new CloudflareWorkerProvider(
+    const explicit = new CloudflareProvider(
       { run: async () => ({ answers: {}, truncated: false, usage: { input_tokens: 1, output_tokens: 0 } }) },
       CLOUDFLARE_MODELS.CLAIRIC
     );
@@ -749,7 +749,7 @@ describe('Clairic contract fixtures', () => {
 
   it('rejects media that violates Clairic caps before dispatch (A11)', async () => {
     let calls = 0;
-    const provider = new CloudflareWorkerProvider(
+    const provider = new CloudflareProvider(
       {
         run: async () => {
           calls++;

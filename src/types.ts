@@ -107,6 +107,17 @@ export type JevProviderType =
   | 'local'
   | (string & {});
 
+/**
+ * How a provider reaches the vendor. Distinct from provider identity: FOCUS 1.5 bills
+ * by vendor/model, not by hop, so two transports of one vendor must not fork `providerUsed`.
+ */
+export type JevTransportKind =
+  | 'binding'
+  | 'rest'
+  | 'local-http'
+  | 'none'
+  | (string & {});
+
 // ==========================================
 // 4. Request & Execution Envelope
 // ==========================================
@@ -184,6 +195,11 @@ export interface JevDecisionResponse<
   /** Ergonomic alias for backward compatibility */
   readonly provider: string;
   readonly modelUsed: string;
+  /**
+   * Transport used for this call (`binding`, `rest`, …). Optional because legacy
+   * providers do not report it; required reading for any latency or cost comparison.
+   */
+  readonly transport?: JevTransportKind;
   readonly isFallback: boolean;
   readonly usage?: JevTokenUsage;
   readonly timestamp: number;
@@ -587,6 +603,8 @@ export interface S1ExtractResponse<
   readonly providerUsed: string;
   readonly provider: string;
   readonly modelUsed: string;
+  /** Transport used for this call (`binding`, `rest`, …); see {@link JevTransportKind}. */
+  readonly transport?: JevTransportKind;
   readonly isFallback: boolean;
   /** True when Clairic split the state or schema and hit the pass limit. */
   readonly truncated: boolean;

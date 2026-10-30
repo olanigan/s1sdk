@@ -94,7 +94,7 @@ console.log(qualityEvaluation.answers.faithfulness.score); // 4
 `s1sdk` dynamically adapts to its host environment:
 
 ### In-Process Cloudflare Workers AI (`env.AI`)
-Supports `@cf/cloudflare/clef-flash` (default fast hot-path, 38.8ms), `@cf/cloudflare/clef` (27B), and `typesafe/jev`:
+Supports `@cf/cloudflare/clef-flash` (default fast hot-path), `@cf/cloudflare/clef` (27B), and `typesafe/jev`:
 
 ```typescript
 import { S1Client, CLOUDFLARE_MODELS } from 's1sdk';
@@ -111,6 +111,32 @@ export default {
   }
 }
 ```
+
+### Cloudflare Workers AI over REST (any runtime)
+The same provider, reached through `POST /accounts/{id}/ai/run/{model}` — for
+Node/Bun CLIs, CI, and benchmarks. Identical payload shaping and answer
+normalization as the binding path; `res.transport` tells you which hop carried
+the call.
+
+```typescript
+import { S1Client, CLOUDFLARE_MODELS } from 's1sdk';
+
+const s1 = new S1Client({
+  provider: 'cloudflare',                 // required: auto-discovery is binding-only
+  cloudflareApiToken: process.env.CLOUDFLARE_API_TOKEN,
+  cloudflareAccountId: process.env.CLOUDFLARE_ACCOUNT_ID,
+  model: CLOUDFLARE_MODELS.CLAIRIC
+});
+```
+
+Transport rules, enforced at construction rather than request time:
+
+| Rule | Behaviour |
+|---|---|
+| Binding + credentials both present | Binding wins; REST is never used as a fallback for a failing binding, so zero-egress configs cannot silently start emitting network calls |
+| `cloudflareTransport: 'rest'` without credentials | Throws immediately |
+| `cloudflareTransport: 'binding'` without `env.AI` | Throws immediately |
+| Credentials only in the environment | Ignored unless `provider: 'cloudflare'` is explicit, so a developer machine's `CLOUDFLARE_API_TOKEN` cannot silently move the default path off local Homestead |
 
 ### Remote OpenRouter Decisions API
 ```typescript

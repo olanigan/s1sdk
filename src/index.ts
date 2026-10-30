@@ -43,7 +43,7 @@ import {
   JevProviderBase,
   OpenRouterProvider,
   TypeSafeProvider,
-  CloudflareWorkerProvider,
+  CloudflareProvider,
   HomesteadProvider,
   OllamaProvider,
   type CloudflareAiBinding
@@ -62,6 +62,15 @@ export interface S1ClientOptions {
   readonly model?: string;
   /** Cloudflare Workers AI env.AI in-process binding */
   readonly aiBinding?: CloudflareAiBinding;
+  /** Cloudflare REST API token (used when no aiBinding is supplied) */
+  readonly cloudflareApiToken?: string;
+  /** Cloudflare account id for REST dispatch */
+  readonly cloudflareAccountId?: string;
+  /**
+   * Pin the Cloudflare transport. `auto` (default) uses the binding when present,
+   * else REST. Pinning an unsatisfiable transport throws at construction.
+   */
+  readonly cloudflareTransport?: 'binding' | 'rest';
   /** Ollama / Homestead daemon keep_alive duration (e.g. '5m', '1h', -1) */
   readonly keepAlive?: string | number;
   /** Execution timeout in milliseconds (default: 10,000ms) */
@@ -123,7 +132,7 @@ export class S1Client {
         case 'cloudflare':
         case 'cloudflare-worker':
         case 'cloudflare-workers-ai':
-          return new CloudflareWorkerProvider(options.aiBinding, options.model);
+          return this.createCloudflareProvider(options, true);
         case 'homestead':
         case 'local':
           return new HomesteadProvider({
@@ -144,9 +153,13 @@ export class S1Client {
       }
     }
 
-    // Auto-discovery heuristics: explicit client options take priority
+    // Auto-discovery heuristics: explicit client options take priority.
+    // Cloudflare auto-discovery is binding-only on purpose: picking up
+    // CLOUDFLARE_API_TOKEN from the environment would silently move the default
+    // path off local Homestead and onto a billed cloud model. Opt in with
+    // provider: 'cloudflare' (and optionally cloudflareApiToken/AccountId).
     if (options.aiBinding) {
-      return new CloudflareWorkerProvider(options.aiBinding, options.model);
+      return this.createCloudflareProvider(options, false);
     }
 
     if (options.apiKey) {
@@ -168,6 +181,30 @@ export class S1Client {
       endpoint: options.endpoint || envHomesteadUrl,
       model: options.model || 'homerouter-420M',
       keepAlive: options.keepAlive
+    });
+  }
+
+  /**
+   * Builds the Cloudflare provider from explicit options, optionally falling back
+   * to CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID when Cloudflare was requested
+   * by name. Transport resolution (and its loud failures) lives in the provider.
+   */
+  private createCloudflareProvider(
+    options: S1ClientOptions,
+    allowEnvCredentials: boolean
+  ): CloudflareProvider {
+    const env = typeof process !== 'undefined' ? process.env : undefined;
+    return new CloudflareProvider({
+      aiBinding: options.aiBinding,
+      apiToken:
+        options.cloudflareApiToken ??
+        (allowEnvCredentials ? env?.CLOUDFLARE_API_TOKEN : undefined),
+      accountId:
+        options.cloudflareAccountId ??
+        (allowEnvCredentials ? env?.CLOUDFLARE_ACCOUNT_ID : undefined),
+      endpoint: options.endpoint,
+      transport: options.cloudflareTransport,
+      model: options.model
     });
   }
 
@@ -536,6 +573,7 @@ export class S1Client {
 // Re-export all types, errors, and primitives
 export * from './types.js';
 export * from './middleware.js';
+export * from './http.js';
 export * from './providers/index.js';
 export * from './judge.js';
 export {

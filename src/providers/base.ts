@@ -18,6 +18,12 @@ export interface ProviderMetadata {
   readonly defaultModel: string;
   readonly supportsLocalExecution: boolean;
   readonly maxConcurrentRequests: number;
+  /** Transport actually in use, when the provider has more than one (e.g. Cloudflare binding vs REST). */
+  readonly transport?: string;
+  /** True only when the active transport provably makes no outbound network calls. */
+  readonly zeroEgress?: boolean;
+  /** Transports this provider can be configured with, for capability discovery. */
+  readonly supportedTransports?: readonly string[];
 }
 
 export abstract class JevProviderBase {

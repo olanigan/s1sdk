@@ -3,13 +3,15 @@
  *
  * Contract: @cf/cloudflare/clairic (input/output JSON Schemas fetched 2026-10-28)
  *
- * Run against Workers AI:
+ * Run against Workers AI over the REST transport:
  *   export CLOUDFLARE_ACCOUNT_ID="..."
  *   export CLOUDFLARE_API_TOKEN="..."
  *   bun run examples/07-clairic-invoice-extraction.ts
  *
- * With no credentials the example uses a deterministic local stub so the
- * request shape, span handling, and telemetry can be inspected offline.
+ * Inside a Worker, pass `env.AI` as `aiBinding` instead — same provider, same
+ * normalizer, zero egress. With no credentials the example uses a deterministic
+ * local stub so the request shape, span handling, and telemetry can be inspected
+ * offline.
  */
 
 import {
@@ -77,14 +79,25 @@ const stubBinding: CloudflareAiBinding = {
 };
 
 async function main() {
-  const aiBinding = stubBinding;
+  const apiToken = typeof process !== 'undefined' ? process.env.CLOUDFLARE_API_TOKEN : undefined;
+  const accountId = typeof process !== 'undefined' ? process.env.CLOUDFLARE_ACCOUNT_ID : undefined;
+  const useRest = Boolean(apiToken && accountId);
 
-  const client = new S1Client({
-    aiBinding,
-    // D1a: extract() requires an explicit Clairic model. Passing clef here
-    // throws JevValidationError instead of silently billing Clairic.
-    model: CLOUDFLARE_MODELS.CLAIRIC
-  });
+  const client = useRest
+    ? new S1Client({
+        provider: 'cloudflare',
+        cloudflareApiToken: apiToken,
+        cloudflareAccountId: accountId,
+        // D1a: extract() requires an explicit Clairic model. Passing clef here
+        // throws JevValidationError instead of silently billing Clairic.
+        model: CLOUDFLARE_MODELS.CLAIRIC
+      })
+    : new S1Client({
+        aiBinding: stubBinding,
+        model: CLOUDFLARE_MODELS.CLAIRIC
+      });
+
+  console.log(useRest ? '\n[transport] Cloudflare REST' : '\n[transport] local stub (no credentials)');
 
   const res = await client.extract({
     state: INVOICE,
@@ -120,6 +133,7 @@ async function main() {
   }
 
   console.log('\n--- Telemetry ---');
+  console.log('transport     ', res.transport);
   console.log('model         ', res.modelUsed);
   console.log('truncated     ', res.truncated);
   console.log('usage         ', res.usage);
