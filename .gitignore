@@ -13,3 +13,8 @@ Thumbs.db
 scratch/
 .vitest/
 .wrangler/
+
+# Secrets
+.env
+.env.local
+.dev.vars
