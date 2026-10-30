@@ -477,10 +477,19 @@ export type S1ExtractSpan = readonly [start: number, end: number];
 
 export interface S1ExtractAnswer<T = any> {
   readonly value: T | null;
-  /** Calibrated confidence score [0.0, 1.0] */
-  readonly confidence: number;
-  /** Calibrated probability that the field is absent or null [0.0, 1.0] */
-  readonly p_null: number;
+  /**
+   * Calibrated confidence score [0.0, 1.0].
+   *
+   * Omitted when the backend reports neither `confidence` nor `p_null` —
+   * Clairic `estimate` / `forecast` answers carry quantiles only. Calibration
+   * audits must treat an absent score as "not reported", never as 1.0.
+   */
+  readonly confidence?: number;
+  /**
+   * Calibrated probability that the field is absent or null [0.0, 1.0].
+   * Same omission rule as `confidence`.
+   */
+  readonly p_null?: number;
   /** Best-effort value when `value` is null/ambiguous */
   readonly guess?: T | null;
   /** Exact character offset span in the input state */

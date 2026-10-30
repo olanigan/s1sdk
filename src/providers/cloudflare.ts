@@ -228,18 +228,22 @@ export function validateClairicImages(images: readonly unknown[] | undefined): v
  * guess fallback, and telemetry fields.
  */
 export function normalizeClairicAnswer(raw: any): S1ExtractAnswer<any> {
-  const confidence =
-    typeof raw.confidence === 'number'
-      ? raw.confidence
-      : typeof raw.p_null === 'number'
-      ? Math.max(0, 1 - raw.p_null)
-      : 1.0;
-  const pNull =
-    typeof raw.p_null === 'number'
-      ? raw.p_null
-      : typeof raw.confidence === 'number'
-      ? Math.max(0, 1 - raw.confidence)
-      : 0.0;
+  // The backend keeps `confidence` and `p_null` complementary, so deriving one
+  // from the other is safe. Fabricating a score when the backend reported
+  // *neither* is not: Clairic estimate/forecast answers carry quantiles only,
+  // and inventing `confidence: 1.0` would corrupt calibration auditing.
+  const hasConfidence = typeof raw.confidence === 'number';
+  const hasPNull = typeof raw.p_null === 'number';
+  const confidence = hasConfidence
+    ? raw.confidence
+    : hasPNull
+    ? Math.max(0, 1 - raw.p_null)
+    : undefined;
+  const pNull = hasPNull
+    ? raw.p_null
+    : hasConfidence
+    ? Math.max(0, 1 - raw.confidence)
+    : undefined;
 
   const normalizeSpan = (span: any): S1ExtractSpan | undefined =>
     Array.isArray(span) && span.length === 2 ? [span[0], span[1]] : undefined;
@@ -268,8 +272,8 @@ export function normalizeClairicAnswer(raw: any): S1ExtractAnswer<any> {
         : raw.text !== undefined
         ? raw.text
         : null,
-    confidence,
-    p_null: pNull,
+    ...(confidence !== undefined ? { confidence } : {}),
+    ...(pNull !== undefined ? { p_null: pNull } : {}),
     ...(span ? { span } : {}),
     ...(spans && spans.length > 0 ? { spans } : {}),
     ...(interval80 !== undefined ? { interval_80: interval80 } : {})

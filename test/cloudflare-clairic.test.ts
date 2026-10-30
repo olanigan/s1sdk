@@ -5,6 +5,7 @@ import {
   CLOUDFLARE_MODELS,
   S1_CLOUDFLARE_MODELS,
   normalizeCloudflareModel,
+  normalizeClairicAnswer,
   sanitizeFieldsForCloudflare,
   CloudflareWorkerProvider,
   extractText,
@@ -646,6 +647,63 @@ describe('Clairic contract fixtures', () => {
     expect(res.usage?.image_tokens).toBe(8);
     expect(res.usage?.schema_tokens).toBe(44);
     expect(res.usage?.stateTokens).toBe(120);
+  });
+
+  it('never fabricates confidence/p_null when the backend reports neither (live estimate shape)', async () => {
+    // Captured from a real @cf/cloudflare/clairic call on 2026-10-28: estimate
+    // answers carry quantiles only — no confidence, no p_null. Inventing
+    // confidence: 1.0 here would poison every downstream calibration audit.
+    const fakeBinding: CloudflareAiBinding = {
+      run: async () => ({
+        model: 'clairic',
+        answers: {
+          spend: {
+            type: 'estimate',
+            value: 2340.741138209904,
+            mean: 2340.741138209904,
+            median: 2416.8608786832174,
+            p10: 1415.6998100339688,
+            p90: 3009.2799357136546,
+            p_below: 1.9171577605447965e-6,
+            p_above: 3.4754696116579e-6
+          }
+        },
+        truncated: false,
+        usage: {
+          state_tokens: 16,
+          image_tokens: 0,
+          schema_tokens: 110,
+          input_tokens: 126,
+          output_tokens: 0,
+          passes: 1
+        }
+      })
+    };
+
+    const provider = new CloudflareWorkerProvider(fakeBinding, CLOUDFLARE_MODELS.CLAIRIC);
+    const res = await provider.extract({
+      state: 'Estimated 2025 spend around 2400 USD, likely between 2000 and 2900.',
+      fields: { spend: extractEstimate(0, 100_000) }
+    });
+
+    expect(res.answers.spend.confidence).toBeUndefined();
+    expect(res.answers.spend.p_null).toBeUndefined();
+    expect(res.answers.spend.value).toBe(2340.741138209904);
+    expect(res.answers.spend.interval_80).toEqual([1415.6998100339688, 3009.2799357136546]);
+  });
+
+  it('derives the missing score only when the backend reports one of confidence/p_null', () => {
+    const onlyPNull = normalizeClairicAnswer({ type: 'text', value: 'x', p_null: 0.25 });
+    expect(onlyPNull.p_null).toBe(0.25);
+    expect(onlyPNull.confidence).toBe(0.75);
+
+    const onlyConfidence = normalizeClairicAnswer({ type: 'text', value: 'x', confidence: 0.6 });
+    expect(onlyConfidence.confidence).toBe(0.6);
+    expect(onlyConfidence.p_null).toBeCloseTo(0.4, 10);
+
+    const neither = normalizeClairicAnswer({ type: 'text', value: 'x' });
+    expect(neither.confidence).toBeUndefined();
+    expect(neither.p_null).toBeUndefined();
   });
 
   it('forwards reference_date and options.include_quantiles/return_state_text', async () => {
