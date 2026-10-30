@@ -7,6 +7,7 @@
  */
 
 import { JevProviderBase, type ProviderMetadata } from './base.js';
+import { clientHeader } from '../http.js';
 import {
   type JevQuestion,
   type JevDecisionRequest,
@@ -73,7 +74,7 @@ export class TypeSafeProvider extends JevProviderBase {
         headers: {
           Authorization: `Bearer ${this.apiKey}`,
           'Content-Type': 'application/json',
-          'X-Client': 's1sdk/0.1.0'
+          'X-Client': clientHeader('typesafe-rest')
         },
         body: JSON.stringify(payload),
         signal

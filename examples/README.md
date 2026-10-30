@@ -2,10 +2,14 @@
 
 This directory contains production-ready examples demonstrating how to implement the **same Customer Service Routing application** across three runtime providers:
 
+0. **Provider-Agnostic Quickstart** (`00-quickstart.ts`)
 1. **TypeSafe AI Official REST APIs** (`01-typesafe-customer-service.ts`)
 2. **OpenRouter Decisions API** (`02-openrouter-customer-service.ts`)
 3. **Cloudflare Workers AI Edge Service** (`03-cloudflare-worker-customer-service/`)
 4. **Failover Resilience via onError Middleware** (`04-offline-fallback-resilience.ts`)
+
+All of them resolve their provider through [`shared/provider.ts`](./shared/provider.ts), so the
+snippets below show the code you would ship, not a credential checklist.
 
 ---
 
@@ -23,34 +27,64 @@ Rather than incurring $3.00–$15.00 / Mtok and 2,500ms latency on multi-token L
 
 ## 2. Quickstart: Running the Examples
 
+### Option 0 (recommended): let devx pick a provider
+
+```bash
+bun install
+cp .env.example .env      # fill in ONE group, or skip it entirely for local Ollama
+bun run devx              # doctor + smoke
+bun run devx examples     # run every example below
+```
+
+`devx` resolves a provider from the environment and prints why it won. Order:
+
+```
+TYPESAFE_API_KEY -> OPENROUTER_API_KEY -> CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID
+                 -> local Ollama (127.0.0.1:11434) -> local Homestead (127.0.0.1:8080)
+```
+
+Local daemons must answer a probe before they are selected. `S1_PROVIDER=<id>` pins a backend
+strictly (no silent vendor switch), `S1_MODEL=<id>` overrides the default model.
+
+| Command | Effect |
+| :--- | :--- |
+| `bun run devx doctor` | credentials present, daemons up, resolution result |
+| `bun run devx smoke` | one real decision + latency + token counts |
+| `bun run devx example 0` | run one example through the resolver |
+| `bun run devx list` | list runnable examples |
+
+`just doctor|smoke|example 0|examples` and `make doctor|smoke|example ID=0|examples` are equivalent.
+
 ### Option A: Failover Resilience via Middleware
-Demonstrates transparent error throwing and graceful recovery using `onError` middleware:
+No credentials needed — the demo uses a simulated failing upstream.
 ```bash
 bun run example:resilience
-# or
-bun run examples/04-offline-fallback-resilience.ts
 ```
 
 ### Option B: TypeSafe AI Official REST API
+Prefers TypeSafe, falls back down the chain if the key is absent.
 ```bash
-export TYPESAFE_API_KEY="ts-..."
 bun run example:typesafe
-# or
-bun run examples/01-typesafe-customer-service.ts
 ```
 
 ### Option C: OpenRouter Decisions API
+Prefers OpenRouter, same fallback behaviour.
 ```bash
-export OPENROUTER_API_KEY="sk-or-..."
 bun run example:openrouter
-# or
-bun run examples/02-openrouter-customer-service.ts
 ```
 
-### Option D: Cloudflare Workers AI Edge Service
+### Option D: Cloudflare Workers AI Edge Service (real `env.AI` binding)
 ```bash
-cd examples/03-cloudflare-worker-customer-service
-npx wrangler dev
+set -a && . ./.env && set +a
+bunx wrangler@4 dev --config examples/03-cloudflare-worker-customer-service/wrangler.clairic.jsonc --port 8791
+# or: just worker-dev
+```
+
+### Option E: Local Ollama (free, no key)
+```bash
+ollama serve &
+ollama pull tev1:0.8b
+S1_PROVIDER=ollama bun run devx smoke
 ```
 
 ---

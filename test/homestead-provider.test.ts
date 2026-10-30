@@ -9,6 +9,7 @@ import {
   JevProviderError,
   JevAuthenticationError
 } from '../src/index.js';
+import { clientHeader } from '../src/http.js';
 
 describe('Homestead & Ollama System-1 Providers', () => {
   const originalFetch = globalThis.fetch;
@@ -160,7 +161,7 @@ describe('Homestead & Ollama System-1 Providers', () => {
       expect(interceptedBody.keep_alive).toBe('5m');
       expect(interceptedBody.questions.intent.type).toBe('choice');
       expect(interceptedBody.questions.is_safe.type).toBe('noul');
-      expect(interceptedHeaders['X-Client']).toBe('s1sdk/0.1.0');
+      expect(interceptedHeaders['X-Client']).toBe(clientHeader('local-http'));
 
       expect(res.answers.intent.choice).toBe('deploy');
       expect(res.answers.is_safe.noul).toBe(0.99);

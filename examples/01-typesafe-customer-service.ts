@@ -1,63 +1,42 @@
 /**
  * Example 1: Customer Service Routing with Official TypeSafe AI REST APIs
  *
- * Requirements:
- *   export TYPESAFE_API_KEY="ts-..."
+ * Prefers TypeSafe AI, then falls back down the devx chain
+ * (OpenRouter -> Cloudflare -> local Ollama -> local Homestead) so the example
+ * still runs when the key is absent.
+ *
+ * Requirements: none. With `TYPESAFE_API_KEY` set it runs against production.
  *
  * Run:
- *   bun run examples/01-typesafe-customer-service.ts
+ *   bun run example:typesafe
+ *   S1_PROVIDER=ollama bun run example:typesafe   # force a backend
  */
 
-import fs from 'node:fs';
-import path from 'node:path';
 import { S1Client } from '../src/index.js';
 import {
   customerServiceQuestions,
   sampleTickets,
   renderRoutingReceipt
 } from './shared/customer-service-schema.js';
+import {
+  loadDotEnv,
+  resolveProvider,
+  describeResolution,
+  DevxConfigError
+} from './shared/provider.js';
 
-// Auto-load .env if present in current or parent directories
-function loadEnv() {
-  if (process.env.TYPESAFE_API_KEY) return;
-  const candidates = [
-    path.resolve(process.cwd(), '.env'),
-    path.resolve(process.cwd(), '../../.env'),
-    path.resolve(process.cwd(), '../.env')
-  ];
-  for (const f of candidates) {
-    if (fs.existsSync(f)) {
-      const content = fs.readFileSync(f, 'utf8');
-      for (const line of content.split('\n')) {
-        const trimmed = line.trim();
-        if (!trimmed || trimmed.startsWith('#')) continue;
-        const [k, ...v] = trimmed.split('=');
-        if (k && v.length > 0 && !process.env[k.trim()]) {
-          process.env[k.trim()] = v.join('=').trim().replace(/^["']|["']$/g, '');
-        }
-      }
-      break;
-    }
-  }
-}
-loadEnv();
+loadDotEnv();
 
 async function main() {
-  const apiKey = process.env.TYPESAFE_API_KEY;
-
-  if (!apiKey) {
-    console.warn('\n⚠️  Notice: TYPESAFE_API_KEY environment variable is not set.');
-    console.warn('   To run against production TypeSafe AI: export TYPESAFE_API_KEY="ts-..."\n');
+  if (!process.env.TYPESAFE_API_KEY) {
+    console.warn('\n⚠️  Notice: TYPESAFE_API_KEY is not set — falling back to another provider.\n');
   }
 
-  // Initialize S1Client for TypeSafe AI
-  const client = new S1Client({
-    provider: 'typesafe',
-    apiKey: apiKey || '',
-    endpoint: process.env.TYPESAFE_ENDPOINT || 'https://api.typesafe.ai/v1/systemone',
-    model: 'jev-latest',
-    timeoutMs: 10_000
-  });
+  const resolved = await resolveProvider({ prefer: 'typesafe' });
+  console.log(`[Init] ${describeResolution(resolved)}`);
+  for (const note of resolved.notes) console.log(`[Init] note: ${note}`);
+
+  const client = new S1Client(resolved.options);
 
   console.log(`[Init] S1Client resolved provider: "${client.provider}"\n`);
 
@@ -73,6 +52,11 @@ async function main() {
 }
 
 main().catch((err) => {
+  if (err instanceof DevxConfigError) {
+    console.error(`\n[devx] ${err.message}`);
+    for (const hint of err.hints) console.error(`  -> ${hint}`);
+    process.exit(2);
+  }
   console.error('[Error] Execution failed:', err);
   process.exit(1);
 });

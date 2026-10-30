@@ -36,6 +36,14 @@
   "files": [
     "dist",
     "src",
+    "examples/*.ts",
+    "examples/README.md",
+    "examples/shared/*.ts",
+    "examples/03-cloudflare-worker-customer-service/*.ts",
+    "examples/03-cloudflare-worker-customer-service/*.jsonc",
+    "skills",
+    "scripts",
+    "CHANGELOG.md",
     "README.md",
     "LICENSE"
   ],
@@ -44,10 +52,19 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "prepublishOnly": "bun run build && bun test",
+    "check": "bun run typecheck && bun run test && bun run build",
+    "prepublishOnly": "bun run check",
+    "release:dry": "npm publish --dry-run --access public",
+    "release": "bun run check && npm publish --access public",
+    "devx": "bun run scripts/devx.ts",
+    "doctor": "bun run scripts/devx.ts doctor",
+    "smoke": "bun run scripts/devx.ts smoke",
+    "example:quickstart": "bun run examples/00-quickstart.ts",
     "example:resilience": "bun run examples/04-offline-fallback-resilience.ts",
     "example:typesafe": "bun run examples/01-typesafe-customer-service.ts",
-    "example:openrouter": "bun run examples/02-openrouter-customer-service.ts"
+    "example:openrouter": "bun run examples/02-openrouter-customer-service.ts",
+    "example:homerouter": "bun run examples/05-homerouter-v1-1-agentic-dispatch.ts",
+    "example:clairic": "bun run examples/07-clairic-invoice-extraction.ts"
   },
   "dependencies": {},
   "devDependencies": {
