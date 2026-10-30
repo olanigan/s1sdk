@@ -13,6 +13,7 @@
  */
 
 import { JevProviderBase, type ProviderMetadata } from './base.js';
+import { clientHeader } from '../http.js';
 import {
   type JevQuestion,
   type JevDecisionRequest,
@@ -121,7 +122,7 @@ export class HomesteadProvider extends JevProviderBase {
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      'X-Client': 's1sdk/0.1.0'
+      'X-Client': clientHeader('local-http')
     };
 
     if (this.apiKey) {
