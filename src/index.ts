@@ -12,11 +12,23 @@ import {
   type JevDecisionResponse,
   type JevExecutionOptions,
   type JevProviderType,
+  type S1ExtractField,
+  type S1ExtractRequest,
+  type S1ExtractResponse,
   JevError,
   JevTimeoutError,
   noul,
   choice,
-  score
+  score,
+  extractText,
+  extractNumber,
+  extractDate,
+  extractTime,
+  extractDateTime,
+  extractDuration,
+  extractList,
+  extractEstimate,
+  extractForecast
 } from './types.js';
 
 import {
@@ -31,7 +43,7 @@ import {
   JevProviderBase,
   OpenRouterProvider,
   TypeSafeProvider,
-  CloudflareWorkerProvider,
+  CloudflareProvider,
   HomesteadProvider,
   OllamaProvider,
   type CloudflareAiBinding
@@ -50,6 +62,15 @@ export interface S1ClientOptions {
   readonly model?: string;
   /** Cloudflare Workers AI env.AI in-process binding */
   readonly aiBinding?: CloudflareAiBinding;
+  /** Cloudflare REST API token (used when no aiBinding is supplied) */
+  readonly cloudflareApiToken?: string;
+  /** Cloudflare account id for REST dispatch */
+  readonly cloudflareAccountId?: string;
+  /**
+   * Pin the Cloudflare transport. `auto` (default) uses the binding when present,
+   * else REST. Pinning an unsatisfiable transport throws at construction.
+   */
+  readonly cloudflareTransport?: 'binding' | 'rest';
   /** Ollama / Homestead daemon keep_alive duration (e.g. '5m', '1h', -1) */
   readonly keepAlive?: string | number;
   /** Execution timeout in milliseconds (default: 10,000ms) */
@@ -111,7 +132,7 @@ export class S1Client {
         case 'cloudflare':
         case 'cloudflare-worker':
         case 'cloudflare-workers-ai':
-          return new CloudflareWorkerProvider(options.aiBinding, options.model);
+          return this.createCloudflareProvider(options, true);
         case 'homestead':
         case 'local':
           return new HomesteadProvider({
@@ -132,9 +153,13 @@ export class S1Client {
       }
     }
 
-    // Auto-discovery heuristics: explicit client options take priority
+    // Auto-discovery heuristics: explicit client options take priority.
+    // Cloudflare auto-discovery is binding-only on purpose: picking up
+    // CLOUDFLARE_API_TOKEN from the environment would silently move the default
+    // path off local Homestead and onto a billed cloud model. Opt in with
+    // provider: 'cloudflare' (and optionally cloudflareApiToken/AccountId).
     if (options.aiBinding) {
-      return new CloudflareWorkerProvider(options.aiBinding, options.model);
+      return this.createCloudflareProvider(options, false);
     }
 
     if (options.apiKey) {
@@ -156,6 +181,30 @@ export class S1Client {
       endpoint: options.endpoint || envHomesteadUrl,
       model: options.model || 'homerouter-420M',
       keepAlive: options.keepAlive
+    });
+  }
+
+  /**
+   * Builds the Cloudflare provider from explicit options, optionally falling back
+   * to CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID when Cloudflare was requested
+   * by name. Transport resolution (and its loud failures) lives in the provider.
+   */
+  private createCloudflareProvider(
+    options: S1ClientOptions,
+    allowEnvCredentials: boolean
+  ): CloudflareProvider {
+    const env = typeof process !== 'undefined' ? process.env : undefined;
+    return new CloudflareProvider({
+      aiBinding: options.aiBinding,
+      apiToken:
+        options.cloudflareApiToken ??
+        (allowEnvCredentials ? env?.CLOUDFLARE_API_TOKEN : undefined),
+      accountId:
+        options.cloudflareAccountId ??
+        (allowEnvCredentials ? env?.CLOUDFLARE_ACCOUNT_ID : undefined),
+      endpoint: options.endpoint,
+      transport: options.cloudflareTransport,
+      model: options.model
     });
   }
 
@@ -337,6 +386,123 @@ export class S1Client {
   }
 
   /**
+   * Primary single-forward-pass System-1 structured field extraction (Clairic).
+   * Extracts typed fields directly from state with calibrated probabilities and span offsets.
+   * Supports both (state, fields, options) and (request, options) invocation styles.
+   */
+  public async extract<
+    TState = unknown,
+    TFields extends Record<string, S1ExtractField> = Record<string, S1ExtractField>
+  >(
+    stateOrRequest: TState | S1ExtractRequest<TState, TFields>,
+    fieldsOrOptions?: TFields | JevExecutionOptions,
+    overrideOptions?: JevExecutionOptions
+  ): Promise<S1ExtractResponse<TFields>> {
+    let request: S1ExtractRequest<TState, TFields>;
+    let options: JevExecutionOptions;
+
+    if (
+      stateOrRequest !== null &&
+      typeof stateOrRequest === 'object' &&
+      'fields' in (stateOrRequest as any)
+    ) {
+      request = stateOrRequest as S1ExtractRequest<TState, TFields>;
+      options = {
+        timeoutMs: this.defaultOptions.timeoutMs,
+        maxRetries: this.defaultOptions.maxRetries,
+        ...request.options,
+        ...(fieldsOrOptions as JevExecutionOptions),
+        ...overrideOptions
+      };
+    } else {
+      request = {
+        state: stateOrRequest as TState,
+        fields: (fieldsOrOptions || {}) as TFields
+      };
+      options = {
+        timeoutMs: this.defaultOptions.timeoutMs,
+        maxRetries: this.defaultOptions.maxRetries,
+        ...overrideOptions
+      };
+    }
+
+    const provider = this.activeProvider;
+    if (typeof (provider as any).extract === 'function') {
+      return this.executeExtractWithRetry(provider, request, options);
+    }
+
+    throw new JevError(
+      `Active provider "${provider.providerId}" does not support structured extraction. Please configure Cloudflare Workers AI with "@cf/cloudflare/clairic".`,
+      'UNSUPPORTED_OPERATION'
+    );
+  }
+
+  /**
+   * Internal retry loop for extraction with exponential backoff & full jitter
+   */
+  private async executeExtractWithRetry<
+    TState,
+    TFields extends Record<string, S1ExtractField>
+  >(
+    provider: any,
+    request: S1ExtractRequest<TState, TFields>,
+    options: JevExecutionOptions
+  ): Promise<S1ExtractResponse<TFields>> {
+    const maxRetries = options.maxRetries ?? 0;
+    const timeoutMs = options.timeoutMs ?? 10_000;
+
+    let attempt = 0;
+    while (true) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const controller = new AbortController();
+
+      if (options.abortSignal) {
+        if (options.abortSignal.aborted) {
+          throw new JevError('Extraction execution aborted by caller', 'JEV_ABORTED', false);
+        }
+        options.abortSignal.addEventListener('abort', () => controller.abort(), { once: true });
+      }
+
+      const execOptions: JevExecutionOptions = {
+        ...options,
+        abortSignal: controller.signal
+      };
+
+      try {
+        if (timeoutMs > 0) {
+          const timeoutPromise = new Promise<never>((_, reject) => {
+            timer = setTimeout(() => {
+              controller.abort();
+              reject(new JevTimeoutError(timeoutMs));
+            }, timeoutMs);
+          });
+
+          return await Promise.race([
+            provider.extract(request, execOptions),
+            timeoutPromise
+          ]);
+        }
+        return await provider.extract(request, execOptions);
+      } catch (err: any) {
+        attempt++;
+        const isRetryable = Boolean(err?.retryable);
+        if (attempt > maxRetries || !isRetryable) {
+          throw err;
+        }
+
+        const base = Math.min(500, 25 * Math.pow(2, attempt));
+        const jitter = 0.8 + Math.random() * 0.4;
+        const sleepMs = Math.round(base * jitter);
+        await new Promise((res) => setTimeout(res, sleepMs));
+      } finally {
+        if (timer) {
+          clearTimeout(timer);
+        }
+      }
+    }
+  }
+
+  /**
    * Internal retry loop with exponential backoff & full jitter
    */
   private async executeWithRetry<
@@ -407,9 +573,23 @@ export class S1Client {
 // Re-export all types, errors, and primitives
 export * from './types.js';
 export * from './middleware.js';
+export * from './http.js';
 export * from './providers/index.js';
 export * from './judge.js';
-export { noul, choice, score };
+export {
+  noul,
+  choice,
+  score,
+  extractText,
+  extractNumber,
+  extractDate,
+  extractTime,
+  extractDateTime,
+  extractDuration,
+  extractList,
+  extractEstimate,
+  extractForecast
+};
 
 // Canonical backwards compatibility
 export class JevClient extends S1Client {}

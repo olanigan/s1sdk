@@ -1,0 +1,83 @@
+{
+    "result": {
+        "model": "clairic",
+        "answers": {
+            "vendor": {
+                "type": "text",
+                "p_null": 0.9214743971824646,
+                "span": [
+                    0,
+                    16
+                ],
+                "guess": "Acme Health Inc.",
+                "confidence": 0.9967108964920044,
+                "value": null
+            },
+            "invoiceNumber": {
+                "type": "text",
+                "p_null": 4.380023165140301e-05,
+                "span": [
+                    25,
+                    33
+                ],
+                "guess": "INV-1042",
+                "confidence": 0.9999983310699463,
+                "value": "INV-1042"
+            },
+            "issuedDate": {
+                "type": "date",
+                "p_null": 0.014979872852563858,
+                "guess": "2026-03-04",
+                "confidence": 0.9954936786112316,
+                "value": "2026-03-04"
+            },
+            "total": {
+                "type": "number",
+                "p_null": 6.566896627191454e-05,
+                "guess": 4500.5,
+                "confidence": 0.9995812420450537,
+                "value": 4500.5
+            },
+            "lineItems": {
+                "type": "list",
+                "value": [
+                    "infusion pump (2 @",
+                    "consumables (1"
+                ],
+                "spans": [
+                    [
+                        80,
+                        98
+                    ],
+                    [
+                        109,
+                        123
+                    ]
+                ],
+                "confidence": 0.020138559023091883
+            },
+            "confidenceBand": {
+                "type": "estimate",
+                "value": 0.73,
+                "mean": 0.7251342168126929,
+                "median": 0.76,
+                "p10": 0.45,
+                "p90": 0.96,
+                "p_below": 4.340904069977114e-06,
+                "p_above": 5.676025011780439e-06
+            }
+        },
+        "truncated": false,
+        "usage": {
+            "state_tokens": 68,
+            "image_tokens": 0,
+            "schema_tokens": 503,
+            "input_tokens": 707,
+            "output_tokens": 0,
+            "passes": 3
+        }
+    },
+    "success": true,
+    "errors": [],
+    "messages": []
+}

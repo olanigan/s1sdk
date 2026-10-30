@@ -1,0 +1,11 @@
+{
+    "errors": [
+        {
+            "message": "AiError: Bad input: Error: enum bogus-type not in text,number,date,time,datetime,duration,list,estimate,forecast at '/a/type' (66dc1e60-2d56-4e7d-8cad-363e052eb77b)",
+            "code": 5006
+        }
+    ],
+    "success": false,
+    "result": {},
+    "messages": []
+}

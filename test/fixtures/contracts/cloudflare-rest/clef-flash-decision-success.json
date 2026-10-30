@@ -1,0 +1,44 @@
+{
+    "result": {
+        "model": "clef-flash",
+        "answers": {
+            "intent": {
+                "type": "choice",
+                "choice": "complaint",
+                "probabilities": {
+                    "refund": 0.0714,
+                    "replacement": 0.3275,
+                    "complaint": 0.5938,
+                    "question": 0.0073
+                },
+                "confidence": 0.2867
+            },
+            "urgency": {
+                "type": "score",
+                "score": 2.999,
+                "legend": {
+                    "0": 1,
+                    "1": 2,
+                    "2": 3,
+                    "3": 4,
+                    "4": 5
+                },
+                "probabilities": {
+                    "0": 0.0447,
+                    "1": 0.0704,
+                    "2": 0.1577,
+                    "3": 0.2954,
+                    "4": 0.4318
+                },
+                "confidence": 0.1319
+            }
+        },
+        "usage": {
+            "input_tokens": 298,
+            "output_tokens": 0
+        }
+    },
+    "success": true,
+    "errors": [],
+    "messages": []
+}

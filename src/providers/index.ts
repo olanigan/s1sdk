@@ -5,6 +5,5 @@
 export * from './base.js';
 export * from './openrouter.js';
 export * from './typesafe.js';
-export * from './cloudflare.js';
+export * from './cloudflare/index.js';
 export * from './homestead.js';
-

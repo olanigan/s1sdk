@@ -7,7 +7,7 @@ import {
   score,
   OpenRouterProvider,
   TypeSafeProvider,
-  CloudflareWorkerProvider,
+  CloudflareProvider,
   HomesteadProvider,
   normalizeCloudflareModel,
   CLOUDFLARE_MODELS,
@@ -491,13 +491,13 @@ describe('Jev-SDK Core Architecture & Primitives', () => {
       expect(() => new S1Client({ provider: 'unknown-engine' as any })).toThrow(JevError);
     });
 
-    it('initializes CloudflareWorkerProvider when aiBinding is passed', () => {
+    it('initializes CloudflareProvider when aiBinding is passed', () => {
       const fakeAiBinding = {
         run: async () => ({ answers: {} })
       };
       const client = new JevClient({ aiBinding: fakeAiBinding });
       expect(client.provider).toBe('cloudflare-workers-ai');
-      expect(client.providerInstance).toBeInstanceOf(CloudflareWorkerProvider);
+      expect(client.providerInstance).toBeInstanceOf(CloudflareProvider);
     });
 
     it('initializes OpenRouterProvider when explicit apiKey is configured', () => {
@@ -686,19 +686,19 @@ describe('Jev-SDK Core Architecture & Primitives', () => {
   describe('Cloudflare Workers AI Provider (Clef & Jev)', () => {
     it('normalizes model identifiers correctly', () => {
       expect(normalizeCloudflareModel('clef-flash')).toEqual({
-        bindingModel: '@cf/cloudflare/clef-flash',
+        modelId: '@cf/cloudflare/clef-flash',
         payloadModel: 'clef-flash'
       });
       expect(normalizeCloudflareModel('@cf/cloudflare/clef')).toEqual({
-        bindingModel: '@cf/cloudflare/clef',
+        modelId: '@cf/cloudflare/clef',
         payloadModel: 'clef'
       });
       expect(normalizeCloudflareModel('jev')).toEqual({
-        bindingModel: 'typesafe/jev',
+        modelId: 'typesafe/jev',
         payloadModel: undefined
       });
       expect(normalizeCloudflareModel('typesafe/jev')).toEqual({
-        bindingModel: 'typesafe/jev',
+        modelId: 'typesafe/jev',
         payloadModel: undefined
       });
     });
@@ -721,7 +721,7 @@ describe('Jev-SDK Core Architecture & Primitives', () => {
         }
       };
 
-      const provider = new CloudflareWorkerProvider(fakeBinding, CLOUDFLARE_MODELS.CLEF_FLASH);
+      const provider = new CloudflareProvider(fakeBinding, CLOUDFLARE_MODELS.CLEF_FLASH);
       const res = await provider.execute({
         state: 'Server down!',
         questions: { urgent: noul('Is it urgent?') }
@@ -751,7 +751,7 @@ describe('Jev-SDK Core Architecture & Primitives', () => {
         }
       };
 
-      const provider = new CloudflareWorkerProvider(fakeBinding, CLOUDFLARE_MODELS.JEV);
+      const provider = new CloudflareProvider(fakeBinding, CLOUDFLARE_MODELS.JEV);
       const res = await provider.execute({
         state: 'Payout failed',
         questions: {
@@ -779,7 +779,7 @@ describe('Jev-SDK Core Architecture & Primitives', () => {
         }
       };
 
-      const provider = new CloudflareWorkerProvider(fakeBinding, CLOUDFLARE_MODELS.CLEF);
+      const provider = new CloudflareProvider(fakeBinding, CLOUDFLARE_MODELS.CLEF);
       await provider.execute({
         state: 'Check chart',
         questions: { has_graph: noul('Does image have graph?') },
