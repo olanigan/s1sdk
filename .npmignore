@@ -1,0 +1,12 @@
+# npm uses this file instead of .gitignore once it exists. `files` in package.json
+# is the whitelist; these rules prune local runtime state from inside it.
+**/.wrangler/
+**/node_modules/
+**/.env
+**/.env.local
+**/.dev.vars
+**/*.sqlite
+**/*.sqlite-shm
+**/*.sqlite-wal
+**/*.log
+**/.DS_Store

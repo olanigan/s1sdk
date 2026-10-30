@@ -41,6 +41,64 @@ pnpm add s1sdk
 
 ---
 
+## 2.1 Run It Locally in One Command
+
+No per-example credential checklist. The resolver picks a backend from whatever you have and tells
+you which one won:
+
+```bash
+git clone https://github.com/olanigan/s1sdk && cd s1sdk
+bun install
+cp .env.example .env      # fill in ONE group: TypeSafe, OpenRouter, Cloudflare, Ollama or Homestead
+bun run devx              # doctor: what is visible -> smoke: one real decision
+```
+
+```text
+s1sdk doctor
+──────────────────────────────────────────────────────────────────
+  ✓ OPENROUTER_API_KEY           sk-or-…c56c
+  ✓ OLLAMA_HOST                  http://127.0.0.1:11434 up
+  · CLOUDFLARE_API_TOKEN + ACCOUNT_ID  token=missing account=missing
+resolution
+  winner: openrouter | openrouter · typesafe/jev-1.13 · OPENROUTER_API_KEY=sk-or-…c56c
+```
+
+| Command | What it does |
+| :--- | :--- |
+| `bun run devx` | doctor + smoke |
+| `bun run devx doctor` | credentials, daemons, probe results, and the provider that wins |
+| `bun run devx smoke` | one real decision with reported latency, wall-clock and token counts |
+| `bun run devx example 0` | provider-agnostic quickstart |
+| `bun run devx examples` | every runnable example |
+| `bun run check` | typecheck + tests + build (the release gate) |
+
+The same targets exist for `just` and `make` (`just doctor`, `make smoke`, `make example ID=2`, …).
+
+**Resolution order** (first hit wins): TypeSafe AI → OpenRouter → Cloudflare Workers AI → local
+Ollama → local Homestead. Local daemons must answer a probe before they are selected, so a stale URL
+cannot shadow a live one. Overrides:
+
+```bash
+S1_PROVIDER=ollama bun run devx smoke    # strict pin: no silent vendor switch
+S1_MODEL=jev-latest bun run devx smoke   # override the provider default model
+S1_TIMEOUT_MS=30000                      # Ollama first call loads the model
+```
+
+Inside a Worker the binding is passed in code, not env — same provider, zero egress:
+
+```typescript
+export default {
+  fetch: (_req: Request, env: { AI: CloudflareAiBinding }) =>
+    new S1Client({ aiBinding: env.AI }).route('where is my order #9921', [
+      'shipping-status',
+      'offer-refund',
+      'search-faq'
+    ])
+};
+```
+
+---
+
 ## 3. Decision Primitives
 
 System-1 queries are modeled through three canonical decision primitives:
@@ -290,8 +348,10 @@ For existing applications migrating from `jev-sdk`:
 
 ## 8. Production Examples
 
-Explore the complete multi-provider customer service routing application in [`examples/`](./examples):
+Every example resolves its provider through [`examples/shared/provider.ts`](./examples/shared/provider.ts),
+so any single credential runs all of them. Full walkthrough in [`examples/README.md`](./examples/README.md).
 
+* [**00-quickstart.ts**](./examples/00-quickstart.ts): provider-agnostic first decision, no credentials required
 * [**01-typesafe-customer-service.ts**](./examples/01-typesafe-customer-service.ts): Official TypeSafe AI REST APIs
 * [**02-openrouter-customer-service.ts**](./examples/02-openrouter-customer-service.ts): OpenRouter Decisions API
 * [**03-cloudflare-worker-customer-service/**](./examples/03-cloudflare-worker-customer-service): Sub-15ms edge routing via `env.AI` binding
@@ -299,10 +359,16 @@ Explore the complete multi-provider customer service routing application in [`ex
 * [**05-homerouter-v1-1-agentic-dispatch.ts**](./examples/05-homerouter-v1-1-agentic-dispatch.ts): Sub-1.2ms local agentic dispatch via HomeRouter S1 v1.1
 * [**07-clairic-invoice-extraction.ts**](./examples/07-clairic-invoice-extraction.ts): Typed invoice extraction with Clairic spans, estimates and usage
 
-Run the resilience failover demo:
 ```bash
-bun run example:resilience
+bun run devx examples        # or: just examples / make examples
 ```
+
+## 8.1 Agent Skill
+
+[`skills/s1sdk/SKILL.md`](./skills/s1sdk/SKILL.md) packages the operational knowledge an agent needs:
+which primitive a task is, how to gate on calibrated confidence, how to read latency/transport/
+`outputTokens=0` honestly, and the failure modes to check first. Drop the directory into any
+harness that reads `SKILL.md` (Claude Code, Codex, Pi, OpenCode) — or point a system prompt at it.
 
 ---
 
