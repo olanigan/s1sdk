@@ -132,7 +132,7 @@ bun install
 cp .env.example .env      # fill in ONE provider group
 bun run devx              # doctor (what's visible) + smoke (one real decision)
 bun run devx example 0    # provider-agnostic quickstart
-bun run devx examples     # every runnable example
+bun run devx examples     # list examples (add `all` to run every one)
 bun run check             # typecheck + 128 tests + build
 ```
 

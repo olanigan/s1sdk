@@ -7,7 +7,8 @@
  *   bun run devx smoke           one real decision + latency, against the winner
  *   bun run devx list            the runnable examples
  *   bun run devx example 02      run examples/02-* through the resolver
- *   bun run devx examples        run every provider-agnostic example in order
+ *   bun run devx examples        list examples; pick one with `examples <id>`
+ *   bun run devx examples all    run every provider-agnostic example in order
  *
  * Flags: --provider <id>  --model <id>  --ticket <key>  --offline  --quiet
  *
@@ -78,10 +79,13 @@ const EXAMPLES = [
   { id: '2', file: '02-openrouter-customer-service.ts', needs: 'any provider (prefers OpenRouter)', title: 'OpenRouter' },
   { id: '4', file: '04-offline-fallback-resilience.ts', needs: 'no credentials', title: 'onError failover' },
   { id: '5', file: '05-homerouter-v1-1-agentic-dispatch.ts', needs: 'homestead daemon', title: 'HomeRouter dispatch' },
-  { id: '7', file: '07-clairic-invoice-extraction.ts', needs: 'cloudflare (stubs without)', title: 'Clairic extraction' }
+  { id: '7', file: '07-clairic-invoice-extraction.ts', needs: 'cloudflare (stubs without)', title: 'Clairic extraction' },
+  { id: '8', file: '08-pr-gate.ts', needs: 'any provider or --stub', title: 'advisory PR gate' }
 ] as const;
 
-const SKIP_IN_RUN_ALL = new Set(['5']);
+// 5 needs a Homestead daemon; 8 inspects this checkout's git range, so both are
+// opt-in rather than part of `devx examples`.
+const SKIP_IN_RUN_ALL = new Set(['5', '8']);
 
 function color(enabled: boolean, code: number): (text: string) => string {
   return (text) => (enabled ? `\u001b[${code}m${text}\u001b[0m` : text);
@@ -329,7 +333,8 @@ function listExamples(): void {
       `  ${example.id.padEnd(2)} ${example.file.padEnd(width)}  ${dim(example.needs.padEnd(30))} ${example.title}`
     );
   }
-  console.log(`\n  run one: ${bold('bun run devx example 0')}`);
+  console.log(`\n  run one: ${bold('bun run devx examples 0')}   ${dim('(or `devx example 0`)')}`);
+  console.log(`  run all: ${bold('bun run devx examples all')}`);
 }
 
 // ==========================================
@@ -344,7 +349,9 @@ function usage(): void {
   bun run devx smoke            one real decision
   bun run devx list             list runnable examples
   bun run devx example <id>     run one example
-  bun run devx examples         run all provider-agnostic examples
+  bun run devx examples         list examples (then pick one or all)
+  bun run devx examples <id>    run one example from the list
+  bun run devx examples all     run every provider-agnostic example
 
   --provider, -p <id>   typesafe | openrouter | cloudflare | ollama | homestead
   --model, -m <id>      override the provider default model
@@ -373,7 +380,15 @@ async function main(): Promise<void> {
       await runOneExample(args);
       return;
     case 'examples':
-      await runAllExamples(args);
+      if (!args.target) {
+        listExamples();
+        return;
+      }
+      if (args.target === 'all') {
+        await runAllExamples(args);
+        return;
+      }
+      await runOneExample(args);
       return;
     case 'all':
       await doctor(args);

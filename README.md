@@ -69,7 +69,7 @@ resolution
 | `bun run devx doctor` | credentials, daemons, probe results, and the provider that wins |
 | `bun run devx smoke` | one real decision with reported latency, wall-clock and token counts |
 | `bun run devx example 0` | provider-agnostic quickstart |
-| `bun run devx examples` | every runnable example |
+| `bun run devx examples` | list examples; pick one with `examples <id>` or run all with `examples all` |
 | `bun run check` | the release gate: typecheck + tests with coverage thresholds + build |
 | `bun run test:coverage` | tests + thresholded coverage of `src/` |
 | `bun run test` | tests only (fast loop, no coverage instrumentation) |
@@ -360,9 +360,10 @@ so any single credential runs all of them. Full walkthrough in [`examples/README
 * [**04-offline-fallback-resilience.ts**](./examples/04-offline-fallback-resilience.ts): Transparent error handling & middleware failover
 * [**05-homerouter-v1-1-agentic-dispatch.ts**](./examples/05-homerouter-v1-1-agentic-dispatch.ts): Sub-1.2ms local agentic dispatch via HomeRouter S1 v1.1
 * [**07-clairic-invoice-extraction.ts**](./examples/07-clairic-invoice-extraction.ts): Typed invoice extraction with Clairic spans, estimates and usage
+* [**08-pr-gate.ts**](./examples/08-pr-gate.ts): Advisory PR gate — risk score, change type, policy checks and a CI receipt
 
 ```bash
-bun run devx examples        # or: just examples / make examples
+bun run devx examples        # list, then `devx examples <id>` or `devx examples all`
 ```
 
 ## 8.1 Agent Skill
