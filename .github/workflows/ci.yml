@@ -3,8 +3,9 @@ name: CI
 on:
   push:
     branches: [main]
+  # Run on every pull request regardless of its base branch: release branches
+  # and stacked PRs must be gated too, not only PRs destined for main.
   pull_request:
-    branches: [main]
 
 concurrency:
   group: ci-${{ github.ref }}
