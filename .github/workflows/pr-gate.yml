@@ -8,6 +8,10 @@ name: PR gate (advisory)
 # With no provider secret (e.g. a fork PR) the workflow runs `--stub`, which
 # exercises the reducer, policy merge, receipt and CI wiring without a model
 # call. The receipt records `provider=stub` so it cannot be mistaken for one.
+#
+# Outputs: a sticky PR comment (updated in place on each push), the run's step
+# summary, and a JSON receipt artifact. The comment is written by the same
+# `gh` used elsewhere; no third-party action is involved.
 
 on:
   pull_request:
@@ -15,7 +19,7 @@ on:
 
 permissions:
   contents: read
-  pull-requests: read
+  pull-requests: write
 
 concurrency:
   group: pr-gate-${{ github.ref }}
@@ -53,15 +57,35 @@ jobs:
           set -euo pipefail
           BASE="origin/${{ github.base_ref }}"
           HEAD="${{ github.event.pull_request.head.sha }}"
+          ARGS=(--base "$BASE" --head "$HEAD" --summary pr-gate-comment.md \
+                --json-file pr-gate-receipt.json)
           if [ -n "${TYPESAFE_API_KEY}${OPENROUTER_API_KEY}" ] || \
              { [ -n "${CLOUDFLARE_API_TOKEN}" ] && [ -n "${CLOUDFLARE_ACCOUNT_ID}" ]; }; then
             echo "::notice::Running the gate against the configured Jev provider."
-            bun run examples/08-pr-gate.ts --base "$BASE" --head "$HEAD" \
-              --json-file pr-gate-receipt.json
+            bun run examples/08-pr-gate.ts "${ARGS[@]}"
           else
             echo "::notice::No S1 credentials; running the offline stub (provider=stub)."
-            bun run examples/08-pr-gate.ts --base "$BASE" --head "$HEAD" --stub \
-              --json-file pr-gate-receipt.json
+            bun run examples/08-pr-gate.ts "${ARGS[@]}" --stub
+          fi
+          # Mirror the PR comment into the Actions run page as well.
+          if [ -f pr-gate-comment.md ]; then
+            cat pr-gate-comment.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Post gate summary to PR
+        # Same-repo PRs only: fork PRs get a read-only token and no secrets.
+        if: always() && github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          if [ -f pr-gate-comment.md ]; then
+            # One comment per PR: edit the bot's previous comment when present,
+            # otherwise create it.
+            gh pr comment "$PR_URL" --body-file pr-gate-comment.md \
+              --edit-last --create-if-none
+          else
+            echo "::warning::No pr-gate-comment.md was produced; skipping the PR comment."
           fi
 
       - name: Upload receipt
@@ -69,6 +93,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: s1-pr-gate-receipt
-          path: pr-gate-receipt.json
+          path: |
+            pr-gate-receipt.json
+            pr-gate-comment.md
           retention-days: 14
           if-no-files-found: warn
