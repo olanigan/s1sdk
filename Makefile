@@ -20,7 +20,7 @@ FILTER ?=
 PROVIDER_FLAG := $(if $(PROVIDER),--provider $(PROVIDER),)
 MODEL_FLAG := $(if $(MODEL),--model $(MODEL),)
 
-.PHONY: help install env doctor smoke devx example examples list typecheck test build check worker-dev pack release tag clean
+.PHONY: help install env doctor smoke devx example examples list typecheck test coverage build check worker-dev pack release tag clean
 
 help:
 	@echo "s1sdk targets"
@@ -32,7 +32,7 @@ help:
 	@echo "  example ID=2     run one example (PROVIDER= to force a backend)"
 	@echo "  examples         run all provider-agnostic examples"
 	@echo "  list             list runnable examples"
-	@echo "  typecheck test build check"
+	@echo "  typecheck test coverage build check"
 	@echo "  worker-dev       wrangler dev for the env.AI binding example"
 	@echo "  pack             npm publish --dry-run"
 	@echo "  release          publish to npm (requires NPM_TOKEN)"
@@ -70,10 +70,13 @@ typecheck:
 test:
 	bun run test $(FILTER)
 
+coverage:
+	bun run test:coverage
+
 build:
 	bun run build
 
-check: typecheck test build
+check: typecheck coverage build
 
 worker-dev:
 	set -a && . ./.env && set +a && bunx wrangler@4 dev \

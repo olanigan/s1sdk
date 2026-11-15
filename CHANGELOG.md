@@ -30,6 +30,12 @@ Experimental developer preview. Wire specs and model identifiers may still chang
   calibrated confidence, how to read a result honestly, and the failure modes to check first.
 - 19 new tests covering env loading, secret masking, candidate ordering, strict pinning, probe
   behaviour and offline fallback (128 total).
+- **Release QA surface**: 76 further tests for `S1Judge` arbitration, OpenRouter/TypeSafe
+  dispatch and error taxonomy, provider `decide()`/health aliases, and a packaged-artifact smoke
+  test that packs the tarball, installs it, and exercises `require()`, `import()` and `tsc`
+  (204 total).
+- **[`RELEASE-CHECKLIST.md`](./RELEASE-CHECKLIST.md)**: the human + automated steps between a green
+  branch and a published version, including fixture re-capture and live provider smoke.
 
 ### Changed
 
@@ -38,10 +44,17 @@ Experimental developer preview. Wire specs and model identifiers may still chang
 - `X-Client` is now built from `clientHeader()` everywhere instead of a hardcoded version string
   (`typesafe`, `homestead` were pinned at `0.1.0` while the package was `0.1.1`).
 - `prepublishOnly` now runs the full gate (typecheck + tests + build) rather than build + tests.
+- `bun run check` enforces coverage thresholds (`vitest.config.ts`: ≥85% statements/lines, ≥78%
+  branches, ≥85% functions over `src/`); CI adds a Node 18/20/22 matrix and a dependency-surface
+  job (zero runtime dependencies + `bun audit --production`).
 - npm tarball also ships `examples/`, `skills/`, `scripts/` and this changelog.
 
 ### Fixed
 
+- `S1Judge` matched destructive keywords as substrings of the proposed choice, so a read turn
+  proposing `confirm` (contains `rm`) or `performance_report` was penalised as destructive, and
+  `skill_lookup` matched `kill`. Keywords now match on normalized token boundaries, while
+  `delete_file`, `deleteAll`, `drop-table` and `rm` are still detected.
 - `devx example 0` resolved to `01-*` because a numeric target matched any file starting with the
   same first character.
 - Probing disabled (`S1_SKIP_PROBE=1`) returned the first unverified local candidate instead of

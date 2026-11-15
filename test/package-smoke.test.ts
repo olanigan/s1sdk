@@ -24,7 +24,14 @@ let tarballPath: string;
 let packedFiles: string[];
 
 function run(cmd: string, args: string[], cwd: string, timeout = 120_000): string {
-  return execFileSync(cmd, args, { cwd, encoding: 'utf8', timeout });
+  // Strip inherited npm configuration. `npm publish --dry-run` (prepublishOnly)
+  // exports npm_config_dry_run=true, which would make the nested
+  // `npm pack`/`npm install` below no-ops and turn this test into a false pass.
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  for (const key of Object.keys(env)) {
+    if (key.toLowerCase().startsWith('npm_config_')) delete env[key];
+  }
+  return execFileSync(cmd, args, { cwd, encoding: 'utf8', timeout, env });
 }
 
 function listFiles(dir: string, prefix = ''): string[] {
@@ -75,6 +82,7 @@ describe('published tarball contents', () => {
       'README.md',
       'LICENSE',
       'CHANGELOG.md',
+      'RELEASE-CHECKLIST.md',
       'dist/index.js',
       'dist/index.cjs',
       'dist/index.d.ts',

@@ -48,6 +48,35 @@ jobs:
           path: coverage/
           retention-days: 7
 
+  supply-chain:
+    # s1sdk ships zero runtime dependencies; keep it that way and verify the
+    # surface that does exist. `.onecoder/policy.toml` is write-protected and
+    # leaves scanner_cmd empty, so this job is the substitute for OneCoder's
+    # (skipped) supply-chain triage.
+    name: Dependency surface
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Assert zero runtime dependencies
+        run: |
+          node -e "const p=require('./package.json');const d=Object.keys(p.dependencies||{});if(d.length){console.error('runtime dependencies require review:',d.join(', '));process.exit(1)};console.log('no runtime dependencies')"
+
+      - name: Audit production dependency surface
+        run: bun audit --production
+
   node-matrix:
     # The package advertises `node >=18`. Bun is only the installer/build tool
     # here; the suite (including the packaged-artifact smoke test) runs on the
