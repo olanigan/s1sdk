@@ -6,8 +6,13 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  test:
+  gate:
+    name: Release gate (typecheck + coverage + build)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -17,14 +22,59 @@ jobs:
         with:
           bun-version: latest
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
       - name: Typecheck
         run: bun run typecheck
 
-      - name: Run tests
-        run: bun run test
+      # Same command as `prepublishOnly` / the release workflow: the coverage
+      # thresholds in vitest.config.ts are part of the gate, not an extra.
+      - name: Tests with coverage thresholds
+        run: bun run test:coverage
 
       - name: Build
         run: bun run build
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage/
+          retention-days: 7
+
+  node-matrix:
+    # The package advertises `node >=18`. Bun is only the installer/build tool
+    # here; the suite (including the packaged-artifact smoke test) runs on the
+    # Node versions consumers actually deploy.
+    name: Node ${{ matrix.node }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [18, 20, 22]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck on Node ${{ matrix.node }}
+        run: node node_modules/typescript/bin/tsc --noEmit
+
+      - name: Tests on Node ${{ matrix.node }}
+        run: node node_modules/vitest/vitest.mjs run
