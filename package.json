@@ -44,6 +44,7 @@
     "skills",
     "scripts",
     "CHANGELOG.md",
+    "RELEASE-CHECKLIST.md",
     "README.md",
     "LICENSE"
   ],
@@ -51,8 +52,9 @@
     "build": "tsc && bun build src/index.ts --outfile dist/index.cjs --format cjs && bun build src/providers/index.ts --outfile dist/providers/index.cjs --format cjs",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit",
-    "check": "bun run typecheck && bun run test && bun run build",
+    "check": "bun run typecheck && bun run test:coverage && bun run build",
     "prepublishOnly": "bun run check",
     "release:dry": "npm publish --dry-run --access public",
     "release": "bun run check && npm publish --access public",
@@ -69,6 +71,7 @@
   "dependencies": {},
   "devDependencies": {
     "@types/node": "^22.13.0",
+    "@vitest/coverage-v8": "2.1.9",
     "typescript": "^5.7.3",
     "vitest": "^2.1.8"
   },
