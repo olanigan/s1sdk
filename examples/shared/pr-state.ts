@@ -112,6 +112,14 @@ const SECRET_RULES: readonly { readonly id: string; readonly re: RegExp }[] = [
 
 const DEPENDENCY_LINE = /^\s*"(@?[^"]+)"\s*:\s*"[~^]?\d/;
 
+/**
+ * Obvious test/demo placeholders are not secrets. Without this the gate flags
+ * its own fixtures (and any README example) the moment they land in a PR.
+ * Only the *line* is suppressed; a real key in a test file still matches.
+ */
+const PLACEHOLDER_MARKER =
+  /\b(?:example|fake|dummy|placeholder|redacted|sample|test[-_]?only|not[-_]?a[-_]?real)\b|xxxx+|abcdefghijklmnop/i;
+
 function matchesAny(path: string, patterns: readonly RegExp[]): boolean {
   return patterns.some((pattern) => pattern.test(path));
 }
@@ -241,6 +249,7 @@ function scanSecrets(file: MutableFile): SecretHit[] {
   let lineNo = 0;
   for (const added of file.addedLines) {
     lineNo += 1;
+    if (PLACEHOLDER_MARKER.test(added)) continue;
     for (const rule of SECRET_RULES) {
       if (rule.re.test(added)) {
         hits.push({ file: file.path, rule: rule.id, line: lineNo });
