@@ -70,7 +70,9 @@ resolution
 | `bun run devx smoke` | one real decision with reported latency, wall-clock and token counts |
 | `bun run devx example 0` | provider-agnostic quickstart |
 | `bun run devx examples` | every runnable example |
-| `bun run check` | typecheck + tests + build (the release gate) |
+| `bun run check` | the release gate: typecheck + tests with coverage thresholds + build |
+| `bun run test:coverage` | tests + thresholded coverage of `src/` |
+| `bun run test` | tests only (fast loop, no coverage instrumentation) |
 
 The same targets exist for `just` and `make` (`just doctor`, `make smoke`, `make example ID=2`, …).
 
@@ -369,6 +371,26 @@ bun run devx examples        # or: just examples / make examples
 which primitive a task is, how to gate on calibrated confidence, how to read latency/transport/
 `outputTokens=0` honestly, and the failure modes to check first. Drop the directory into any
 harness that reads `SKILL.md` (Claude Code, Codex, Pi, OpenCode) — or point a system prompt at it.
+
+---
+
+## 8.2 Quality Gates & Release
+
+A release is only as good as the artifact it ships. The gate is deliberately about the tarball, not
+just the sources:
+
+* **204 tests** across unit, wire-contract, zero-egress, and packaged-artifact suites.
+* **Coverage thresholds** (`vitest.config.ts`): ≥85% statements/lines, ≥78% branches, ≥85%
+  functions over `src/`, enforced by `bun run check` and therefore by `prepublishOnly`.
+* **Packaged-artifact smoke test**: rebuilds, `npm pack`s, installs the tarball as a consumer, then
+  asserts the `exports` map, `require()`/`import()`, a real decision through the published bundle,
+  and that the shipped declarations typecheck for a TypeScript consumer.
+* **Node 18 / 20 / 22 matrix** in CI. Bun is only the installer; the suite runs on Node.
+* **Zero runtime dependencies** and `bun audit --production` in CI — the supply chain is one
+  devDependency deep, on purpose.
+
+Step-by-step, including the manual live-provider smoke and Cloudflare fixture re-capture, is in
+[`RELEASE-CHECKLIST.md`](./RELEASE-CHECKLIST.md).
 
 ---
 

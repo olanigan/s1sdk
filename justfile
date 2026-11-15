@@ -54,8 +54,12 @@ test filter="":
 build:
     bun run build
 
+# Tests + thresholded coverage of src/ (vitest.config.ts).
+coverage:
+    bun run test:coverage
+
 # The gate that must pass before a release.
-check: typecheck test build
+check: typecheck coverage build
 
 # ── Cloudflare worker example (real env.AI binding) ──────────────────────────
 
