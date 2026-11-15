@@ -7,6 +7,7 @@ This directory contains production-ready examples demonstrating how to implement
 2. **OpenRouter Decisions API** (`02-openrouter-customer-service.ts`)
 3. **Cloudflare Workers AI Edge Service** (`03-cloudflare-worker-customer-service/`)
 4. **Failover Resilience via onError Middleware** (`04-offline-fallback-resilience.ts`)
+5. **Advisory PR Gate** (`08-pr-gate.ts`) — risk score, change classification, policy checks
 
 All of them resolve their provider through [`shared/provider.ts`](./shared/provider.ts), so the
 snippets below show the code you would ship, not a credential checklist.
@@ -33,7 +34,7 @@ Rather than incurring $3.00–$15.00 / Mtok and 2,500ms latency on multi-token L
 bun install
 cp .env.example .env      # fill in ONE group, or skip it entirely for local Ollama
 bun run devx              # doctor + smoke
-bun run devx examples     # run every example below
+bun run devx examples     # list examples; add an id or `all` to run
 ```
 
 `devx` resolves a provider from the environment and prints why it won. Order:
@@ -50,7 +51,9 @@ strictly (no silent vendor switch), `S1_MODEL=<id>` overrides the default model.
 | :--- | :--- |
 | `bun run devx doctor` | credentials present, daemons up, resolution result |
 | `bun run devx smoke` | one real decision + latency + token counts |
-| `bun run devx example 0` | run one example through the resolver |
+| `bun run devx examples` | list runnable examples |
+| `bun run devx examples 0` | run one example through the resolver |
+| `bun run devx examples all` | run every provider-agnostic example |
 | `bun run devx list` | list runnable examples |
 
 `just doctor|smoke|example 0|examples` and `make doctor|smoke|example ID=0|examples` are equivalent.
@@ -86,6 +89,27 @@ ollama serve &
 ollama pull tev1:0.8b
 S1_PROVIDER=ollama bun run devx smoke
 ```
+
+### Option F: Advisory PR Gate (features 1, 2, 5, 6)
+Reduces a git diff to bounded state, asks one Jev forward pass for a risk score and change
+type, merges deterministic policy hits, and emits a JSON/GitHub-step-summary receipt.
+
+```bash
+# dogfood on this checkout; --stub exercises the plumbing with no model call
+bun run example:pr-gate --base origin/main --head HEAD --stub
+
+# against the configured Jev provider, writing the receipt artifact + step summary
+bun run example:pr-gate --base origin/main --head HEAD \
+  --json-file pr-gate-receipt.json --summary "$GITHUB_STEP_SUMMARY"
+
+# fail the job only on a hold verdict (default is advisory: exit 0)
+bun run example:pr-gate --base origin/main --head HEAD --fail-on hold
+```
+
+The receipt is pure serialization of the single decision — the CI step adds no second model
+call. Policy checks (`secrets`, `migration_review`, `protected_infra`) start from a
+deterministic path/regex pre-filter; the model only adds calibrated nuance, never sole
+authority. Secret matches are reported by rule and location, never by value.
 
 ---
 

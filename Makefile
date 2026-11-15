@@ -16,11 +16,14 @@ PROVIDER ?=
 MODEL ?=
 ID ?= 0
 FILTER ?=
+BASE ?= origin/main
+HEAD_REF ?= HEAD
+STUB ?=
 
 PROVIDER_FLAG := $(if $(PROVIDER),--provider $(PROVIDER),)
 MODEL_FLAG := $(if $(MODEL),--model $(MODEL),)
 
-.PHONY: help install env doctor smoke devx example examples list typecheck test coverage build check worker-dev pack release tag clean
+.PHONY: help install env doctor smoke devx example examples list pr-gate typecheck test coverage build check worker-dev pack release tag clean
 
 help:
 	@echo "s1sdk targets"
@@ -32,6 +35,7 @@ help:
 	@echo "  example ID=2     run one example (PROVIDER= to force a backend)"
 	@echo "  examples         run all provider-agnostic examples"
 	@echo "  list             list runnable examples"
+	@echo "  pr-gate          advisory PR gate (BASE= HEAD_REF= STUB=1)"
 	@echo "  typecheck test coverage build check"
 	@echo "  worker-dev       wrangler dev for the env.AI binding example"
 	@echo "  pack             npm publish --dry-run"
@@ -59,10 +63,13 @@ example:
 	bun run scripts/devx.ts example $(ID) $(PROVIDER_FLAG)
 
 examples:
-	bun run scripts/devx.ts examples $(PROVIDER_FLAG)
+	bun run scripts/devx.ts examples all $(PROVIDER_FLAG)
 
 list:
 	bun run scripts/devx.ts list
+
+pr-gate:
+	bun run examples/08-pr-gate.ts --base $(BASE) --head $(HEAD_REF) $(if $(STUB),--stub,)
 
 typecheck:
 	bun run typecheck

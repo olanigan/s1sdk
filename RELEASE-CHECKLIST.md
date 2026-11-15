@@ -67,7 +67,7 @@ just smoke homestead
 
 - [ ] Each smoke prints a decision, latency and token counts (no mocks, no fixtures).
 - [ ] Record provider, model, wall-clock latency, tokens and the date in the release PR.
-- [ ] `bun run devx examples` runs every provider-agnostic example.
+- [ ] `bun run devx examples all` runs every provider-agnostic example.
 
 ## 5. Artifact inspection
 

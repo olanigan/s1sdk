@@ -36,12 +36,16 @@ devx provider="":
 example id provider="":
     bun run scripts/devx.ts example {{ id }} {{ if provider != "" { "--provider " + provider } else { "" } }}
 
-# Every provider-agnostic example in order.
+# List examples. Run one with `just example <id>` or all with `just examples all`.
 examples provider="":
-    bun run scripts/devx.ts examples {{ if provider != "" { "--provider " + provider } else { "" } }}
+    bun run scripts/devx.ts examples all {{ if provider != "" { "--provider " + provider } else { "" } }}
 
 list:
     bun run scripts/devx.ts list
+
+# Advisory PR gate for a git range (stub=1 runs the plumbing with no model call).
+pr-gate base="origin/main" head="HEAD" stub="":
+    bun run examples/08-pr-gate.ts --base {{ base }} --head {{ head }}{{ if stub != "" { " --stub" } else { "" } }}
 
 # ── Quality gates ────────────────────────────────────────────────────────────
 
