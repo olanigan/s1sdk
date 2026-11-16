@@ -44,12 +44,17 @@ TYPESAFE_API_KEY -> OPENROUTER_API_KEY -> CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCO
                  -> local Ollama (127.0.0.1:11434) -> local Homestead (127.0.0.1:8080)
 ```
 
-Local daemons must answer a probe before they are selected. `S1_PROVIDER=<id>` pins a backend
-strictly (no silent vendor switch), `S1_MODEL=<id>` overrides the default model.
+Local daemons must answer a probe before they are selected. When several providers are usable in an
+interactive terminal, `devx` asks which one to use and saves the choice to `.devx/provider.json`
+(gitignored), so later runs reuse it without prompting (`--change-provider` re-picks,
+`--forget-provider` clears it, `--no-save` makes a run one-off; `--no-pick` keeps the ladder).
+`devx doctor` never prompts; `q` at the prompt keeps the ladder, while Ctrl-C/Ctrl-D abort with
+exit 130 before any decision runs. `S1_PROVIDER=<id>` pins a backend strictly (no silent vendor
+switch), `S1_MODEL=<id>` overrides the default model.
 
 | Command | Effect |
 | :--- | :--- |
-| `bun run devx doctor` | credentials present, daemons up, resolution result |
+| `bun run devx doctor` | credentials present, daemons up, resolution result (never prompts) |
 | `bun run devx smoke` | one real decision + latency + token counts |
 | `bun run devx examples` | list runnable examples |
 | `bun run devx examples 0` | run one example through the resolver |

@@ -11,6 +11,17 @@
  *   bun run devx examples all    run every provider-agnostic example in order
  *
  * Flags: --provider <id>  --model <id>  --ticket <key>  --offline  --quiet
+ *        --pick (force the provider picker)  --no-pick (always use the ladder)
+ *        --change-provider (re-pick)  --forget-provider  --no-save
+ *
+ * With more than one provider available, an interactive terminal is asked which
+ * one to use instead of silently taking the first rung of the preference ladder.
+ * The choice is saved to `.devx/provider.json` and reused on later runs, so the
+ * prompt appears once (or again only after the saved provider stops being ready).
+ * `--provider`, `S1_PROVIDER`, and `--no-pick` all bypass that prompt.
+ *
+ * `devx doctor` is a passive diagnostic and never prompts. `q` keeps the ladder,
+ * while Ctrl-C/Ctrl-D abort the command with exit 130 without running a decision.
  *
  * Nothing here is required to use the SDK; it exists so a fresh clone needs one
  * command and one credential instead of a per-example checklist.
@@ -19,12 +30,17 @@
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { createInterface } from 'node:readline/promises';
 import { fileURLToPath } from 'node:url';
 import { S1Client } from '../src/index.js';
 import {
   loadDotEnv,
   resolveProvider,
   describeResolution,
+  listProviderChoices,
+  readSavedProvider,
+  writeSavedProvider,
+  clearSavedProvider,
   maskSecret,
   probeEndpoint,
   toBaseUrl,
@@ -32,6 +48,14 @@ import {
   type DevxProviderId,
   type ResolvedProvider
 } from '../examples/shared/provider.js';
+import {
+  PickerCancelledError,
+  commandUsesProvider,
+  describeCancellation,
+  runProviderPrompt,
+  type PickerCancellationReason,
+  type ProviderSelection
+} from './devx-picker.js';
 import { customerServiceQuestions, sampleTickets } from '../examples/shared/customer-service-schema.js';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -45,6 +69,10 @@ interface CliArgs {
   ticket: string;
   offline: boolean;
   quiet: boolean;
+  pick?: boolean;
+  changeProvider: boolean;
+  forgetProvider: boolean;
+  noSave: boolean;
   passthrough: string[];
 }
 
@@ -54,6 +82,9 @@ function parseCli(argv: readonly string[]): CliArgs {
     ticket: 'doubleBillingAngry',
     offline: false,
     quiet: false,
+    changeProvider: false,
+    forgetProvider: false,
+    noSave: false,
     passthrough: []
   };
   const rest: string[] = [];
@@ -64,6 +95,11 @@ function parseCli(argv: readonly string[]): CliArgs {
     else if (arg === '--ticket' || arg === '-t') args.ticket = argv[++i] as string;
     else if (arg === '--offline') args.offline = true;
     else if (arg === '--quiet' || arg === '-q') args.quiet = true;
+    else if (arg === '--pick' || arg === '--select') args.pick = true;
+    else if (arg === '--no-pick' || arg === '--auto') args.pick = false;
+    else if (arg === '--change-provider' || arg === '--re-pick') args.changeProvider = true;
+    else if (arg === '--forget-provider') args.forgetProvider = true;
+    else if (arg === '--no-save') args.noSave = true;
     else if (arg.startsWith('-')) args.passthrough.push(arg);
     else rest.push(arg);
   }
@@ -338,6 +374,177 @@ function listExamples(): void {
 }
 
 // ==========================================
+// provider picker
+// ==========================================
+
+function isInteractive(): boolean {
+  return Boolean(process.stdin.isTTY && process.stdout.isTTY);
+}
+
+/** Where the chosen provider is remembered. Override with S1_DEVX_PROVIDER_FILE. */
+function providerStorePath(): string {
+  return (
+    process.env.S1_DEVX_PROVIDER_FILE?.trim() ||
+    path.join(REPO_ROOT, '.devx', 'provider.json')
+  );
+}
+
+/** Clears the saved choice; used by the flag even for commands that never prompt. */
+function forgetSavedProvider(): void {
+  const store = providerStorePath();
+  if (clearSavedProvider(store)) {
+    const shown = path.relative(REPO_ROOT, store);
+    console.log(dim(`  cleared saved provider (${shown.startsWith('..') ? store : shown})`));
+  } else {
+    console.log(dim('  no saved provider to clear'));
+  }
+}
+
+async function providerIsReady(provider: DevxProviderId, offline: boolean): Promise<boolean> {
+  const choices = await listProviderChoices(process.env, { probe: !offline });
+  return choices.some((choice) => choice.provider === provider && choice.ready);
+}
+
+interface ReadlinePrompt {
+  readonly ask: (question: string) => Promise<string>;
+  readonly close: () => void;
+}
+
+/**
+ * Readline-backed `ask` with explicit Ctrl-C cancellation.
+ *
+ * `rl.question()` does not settle on SIGINT (and its `AbortError` on Ctrl-D is
+ * only raised in a TTY), so the prompt loop needs a rejection it can classify.
+ * The `close` listener also covers an input stream that ends under us.
+ */
+function createReadlinePrompt(): ReadlinePrompt {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  let interrupt: ((reason: PickerCancellationReason) => void) | undefined;
+
+  // Readline does not emit `SIGINT` on every runtime (Bun's compatibility layer
+  // does not), so listen on the process as well. Re-raising after a completed
+  // prompt keeps Ctrl-C terminating the process as usual.
+  const onSigint = (): void => {
+    if (interrupt) {
+      interrupt('sigint');
+      return;
+    }
+    process.off('SIGINT', onSigint);
+    process.kill(process.pid, 'SIGINT');
+  };
+  process.on('SIGINT', onSigint);
+  rl.on('SIGINT', onSigint);
+  rl.on('close', () => interrupt?.('eof'));
+
+  return {
+    ask: (question) =>
+      new Promise<string>((resolve, reject) => {
+        interrupt = (reason) => reject(new PickerCancelledError(reason));
+        rl.question(question).then(
+          (answer) => {
+            interrupt = undefined;
+            resolve(answer);
+          },
+          (error: unknown) => {
+            interrupt = undefined;
+            reject(error);
+          }
+        );
+      }),
+    close: () => {
+      interrupt = undefined;
+      process.off('SIGINT', onSigint);
+      rl.close();
+    }
+  };
+}
+
+/**
+ * Resolves the provider the human wants before the command runs.
+ *
+ * Returns `ladder` when the caller should keep the existing resolution (an
+ * explicit `--provider`/`S1_PROVIDER`, a non-interactive terminal, `--no-pick`,
+ * or nothing usable to choose from), `picked` to pin exactly one backend, and
+ * `cancelled` when the human aborted (Ctrl-C/Ctrl-D) — which must stop the
+ * command rather than fall through to a real, potentially billed decision.
+ *
+ * The choice is persisted, so the prompt only appears on the first run (or when
+ * the saved provider is no longer ready). `--change-provider` forces a re-pick,
+ * `--forget-provider` clears the saved choice, and `--no-save` keeps a run
+ * one-off. `S1_DEVX_NO_PERSIST=1` disables reading and writing the store.
+ */
+async function pickProvider(args: CliArgs): Promise<ProviderSelection> {
+  if (args.provider) return { kind: 'ladder', reason: 'none' };
+
+  const env = process.env;
+  loadDotEnv(REPO_ROOT, env);
+
+  const pinned = (env.S1_PROVIDER ?? '').trim().toLowerCase();
+  if (pinned && pinned !== 'auto') return { kind: 'ladder', reason: 'none' };
+
+  const store = providerStorePath();
+
+  if (args.pick === false) return { kind: 'ladder', reason: 'none' };
+
+  const persist = !args.noSave && env.S1_DEVX_NO_PERSIST !== '1';
+  if (persist && !args.changeProvider && !args.forgetProvider) {
+    const saved = readSavedProvider(store);
+    if (saved) {
+      if (await providerIsReady(saved.provider, args.offline)) {
+        console.log(dim(`  using saved provider: ${saved.provider} (change with --change-provider)`));
+        return { kind: 'picked', provider: saved.provider };
+      }
+      console.log(yellow(`  saved provider "${saved.provider}" is no longer ready; ignoring saved choice`));
+    }
+  }
+
+  const forced = args.pick === true;
+  const canPrompt = isInteractive();
+  if (forced && !canPrompt) {
+    console.log(dim('  --pick ignored: not an interactive terminal'));
+    return { kind: 'ladder', reason: 'unavailable' };
+  }
+  if (!forced && !canPrompt) return { kind: 'ladder', reason: 'none' };
+
+  const choices = await listProviderChoices(env, { probe: !args.offline });
+  const ready = choices.filter((choice) => choice.ready);
+  if (ready.length === 0) {
+    if (forced) console.log(yellow('  no provider is ready to select; trying the ladder'));
+    return { kind: 'ladder', reason: 'unavailable' };
+  }
+
+  let selection: ProviderSelection;
+  const [only] = ready;
+  // One usable provider is not a choice; take it without asking.
+  if (ready.length === 1 && !forced && only) {
+    selection = { kind: 'picked', provider: only.provider };
+  } else {
+    section('choose a provider');
+    ready.forEach((choice, index) => {
+      console.log(
+        `  ${String(index + 1).padStart(2)}  ${bold(choice.provider.padEnd(10))} ${dim(choice.detail)}`
+      );
+    });
+    const hint = dim('(enter = 1, q = keep the ladder default)');
+    const io = createReadlinePrompt();
+    try {
+      selection = await runProviderPrompt(ready, {
+        ask: io.ask,
+        question: `\nselect [1-${ready.length}] ${hint}: `,
+        onInvalid: (answer) => console.log(yellow(`  not a valid choice: ${answer}`))
+      });
+    } finally {
+      io.close();
+    }
+  }
+
+  if (selection.kind === 'picked' && persist) {
+    writeSavedProvider(store, selection.provider, forced ? 'flag' : 'picker');
+  }
+  return selection;
+}
+
+// ==========================================
 // main
 // ==========================================
 
@@ -356,16 +563,35 @@ function usage(): void {
   --provider, -p <id>   typesafe | openrouter | cloudflare | ollama | homestead
   --model, -m <id>      override the provider default model
   --ticket, -t <key>    ticket fixture for smoke (default: doubleBillingAngry)
+  --pick, --select      force the provider picker (interactive terminals)
+  --no-pick, --auto     skip the picker and use the preference ladder
+  --change-provider     ignore the saved provider and pick again
+  --forget-provider     delete the saved provider choice
+  --no-save             pick for this run only; do not read or write the store
   --offline             skip local daemon probes
   --quiet, -q           minimal output
 
+  doctor never prompts. The picker runs for devx, smoke, example <id>
+  and examples <id|all>; q keeps the ladder, Ctrl-C/Ctrl-D aborts (exit 130).
+
 environments: TYPESAFE_API_KEY, OPENROUTER_API_KEY,
   CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID,
-  OLLAMA_HOST, HOMESTEAD_API_URL, S1_PROVIDER, S1_MODEL, S1_TIMEOUT_MS`);
+  OLLAMA_HOST, HOMESTEAD_API_URL, S1_PROVIDER, S1_MODEL, S1_TIMEOUT_MS,
+  S1_DEVX_PROVIDER_FILE (saved choice path), S1_DEVX_NO_PERSIST=1`);
 }
 
 async function main(): Promise<void> {
   const args = parseCli(process.argv.slice(2));
+  if (args.forgetProvider) forgetSavedProvider();
+  if (commandUsesProvider(args.command, args.target) && !args.provider) {
+    const selection = await pickProvider(args);
+    if (selection.kind === 'cancelled') {
+      console.error(`\n[devx] ${describeCancellation(selection.reason)}; nothing was run`);
+      process.exitCode = 130;
+      return;
+    }
+    if (selection.kind === 'picked') args.provider = selection.provider;
+  }
   switch (args.command) {
     case 'doctor':
       await doctor(args);

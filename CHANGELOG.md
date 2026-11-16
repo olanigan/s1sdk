@@ -4,6 +4,31 @@ All notable changes to `s1sdk`. Format follows [Keep a Changelog](https://keepac
 versions follow [SemVer](https://semver.org/). While the package is `0.x`, breaking changes ship in
 minor versions and are called out under **Changed**.
 
+## [Unreleased]
+
+### Added
+
+- **`devx` provider picker**: when more than one provider is usable in an interactive terminal,
+  `devx` now asks which one to run against instead of silently taking the first rung of the
+  preference ladder. The choice is persisted to `.devx/provider.json` (gitignored, provider id only,
+  no credentials) and reused on later runs; the prompt returns only on first run or after the saved
+  provider stops being ready. `--change-provider`/`--re-pick` forces a new choice,
+  `--forget-provider` clears it, `--no-save` keeps a run one-off, `--pick`/`--select` forces the
+  prompt, `--no-pick`/`--auto` keeps the ladder, and `--provider`/`S1_PROVIDER` still bypass it as a
+  strict pin. Backed by new `listProviderChoices()`, `readSavedProvider()`, `writeSavedProvider()`,
+  and `clearSavedProvider()` resolver helpers.
+
+### Changed
+
+- **`devx doctor` stays passive**: only commands that actually run a provider (`devx`, `smoke`,
+  `example <id>`, `examples <id|all>`) enter the picker. `devx doctor` never reads stdin, never pays
+  for duplicate probes on a first run, and keeps reporting the provider that wins the ladder.
+- **Cancel is an abort, not a ladder run**: `q` still declines and keeps the preference ladder, but
+  Ctrl-C/Ctrl-D now stop the command with exit 130 before any decision is billed.
+- **The picker loop is tested**: `test/devx-picker.test.ts` covers the answer mapping
+  (number/name/empty/invalid/`q`), retry-on-invalid, unrelated-error propagation, and Ctrl-C/Ctrl-D
+  cancellation.
+
 ## [0.1.1] — 2026-10-30
 
 Experimental developer preview. Wire specs and model identifiers may still change.

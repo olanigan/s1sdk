@@ -15,6 +15,9 @@ scratch/
 coverage/
 .wrangler/
 
+# devx saved provider choice
+.devx/
+
 # Secrets
 .env
 .env.local

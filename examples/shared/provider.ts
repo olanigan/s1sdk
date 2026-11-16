@@ -310,8 +310,160 @@ export async function probeEndpoint(
   return false;
 }
 
+/**
+ * A provider the developer can explicitly choose, with enough detail for an
+ * interactive picker. `ready` means "safe to select now": hosted providers have
+ * their credential, local daemons answered (or were configured explicitly when
+ * probing is disabled).
+ */
+export interface ProviderChoice {
+  readonly provider: DevxProviderId;
+  readonly ready: boolean;
+  readonly detail: string;
+}
+
+/**
+ * Lists every candidate provider in ladder order and resolves whether it is
+ * usable right now. Pure detection plus optional probes; never throws.
+ *
+ * Unlike `resolveProvider` this does not stop at the first hit — the point is to
+ * let a human choose instead of accepting the ladder default.
+ */
+export async function listProviderChoices(
+  env: DevxEnv = process.env,
+  options: {
+    readonly probe?: boolean;
+    readonly probeTimeoutMs?: number;
+    readonly fetchImpl?: typeof fetch;
+    readonly binding?: CloudflareAiBinding;
+  } = {}
+): Promise<ProviderChoice[]> {
+  const candidates = detectCandidates(env, { binding: options.binding });
+  const shouldProbe = options.probe ?? true;
+  const choices: ProviderChoice[] = [];
+
+  for (const candidate of candidates) {
+    const probeUrls = candidate.probeUrls ?? [];
+    if (probeUrls.length === 0) {
+      // Hosted provider: reaching here means its credentials are present.
+      choices.push({ provider: candidate.provider, ready: true, detail: candidate.credential });
+      continue;
+    }
+
+    const base = probeUrls[0] ?? '';
+    if (!shouldProbe) {
+      const configured = candidate.source === 'env';
+      choices.push({
+        provider: candidate.provider,
+        ready: configured,
+        detail: configured ? `configured ${base} (unprobed)` : `not configured (${base} unprobed)`
+      });
+      continue;
+    }
+
+    const alive = await probeEndpoint(base, {
+      timeoutMs: options.probeTimeoutMs,
+      fetchImpl: options.fetchImpl
+    });
+    choices.push({
+      provider: candidate.provider,
+      ready: alive,
+      detail: alive ? `up at ${base}` : `down at ${base}${candidate.source === 'env' ? ' (configured)' : ''}`
+    });
+  }
+
+  return choices;
+}
+
 // ==========================================
-// 5. Resolution
+// 5. Persisted choice
+// ==========================================
+
+const SAVED_PROVIDER_VERSION = 1;
+const KNOWN_PROVIDERS: readonly DevxProviderId[] = [
+  'typesafe',
+  'openrouter',
+  'cloudflare',
+  'ollama',
+  'homestead'
+];
+
+export type SavedProviderSource = 'picker' | 'flag';
+
+/**
+ * The provider a developer chose, persisted so later runs do not re-prompt.
+ * Never stores credentials — only the provider id and provenance metadata.
+ */
+export interface SavedProvider {
+  readonly version: typeof SAVED_PROVIDER_VERSION;
+  readonly provider: DevxProviderId;
+  readonly savedAt: string;
+  readonly savedBy: SavedProviderSource;
+}
+
+function isDevxProviderId(value: unknown): value is DevxProviderId {
+  return typeof value === 'string' && (KNOWN_PROVIDERS as readonly string[]).includes(value);
+}
+
+/** Reads and validates the saved choice. Missing/corrupt/unknown -> undefined. */
+export function readSavedProvider(file: string): SavedProvider | undefined {
+  let raw: string;
+  try {
+    raw = fs.readFileSync(file, 'utf8');
+  } catch {
+    return undefined;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+  if (typeof parsed !== 'object' || parsed === null) return undefined;
+
+  const record = parsed as Record<string, unknown>;
+  if (record.version !== SAVED_PROVIDER_VERSION) return undefined;
+  if (!isDevxProviderId(record.provider)) return undefined;
+
+  return {
+    version: SAVED_PROVIDER_VERSION,
+    provider: record.provider,
+    savedAt: typeof record.savedAt === 'string' ? record.savedAt : '',
+    savedBy: record.savedBy === 'flag' ? 'flag' : 'picker'
+  };
+}
+
+/** Atomically writes the choice (temp file + rename) with owner-only perms. */
+export function writeSavedProvider(
+  file: string,
+  provider: DevxProviderId,
+  savedBy: SavedProviderSource = 'picker'
+): void {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const payload: SavedProvider = {
+    version: SAVED_PROVIDER_VERSION,
+    provider,
+    savedAt: new Date().toISOString(),
+    savedBy
+  };
+  const tmp = `${file}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, `${JSON.stringify(payload, null, 2)}\n`, { mode: 0o600 });
+  fs.renameSync(tmp, file);
+}
+
+/** Removes the saved choice. Returns false when there was nothing to remove. */
+export function clearSavedProvider(file: string): boolean {
+  try {
+    fs.unlinkSync(file);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// ==========================================
+// 6. Resolution
 // ==========================================
 
 function normalizeProviderId(value: string | undefined): DevxProviderId | 'auto' | undefined {
