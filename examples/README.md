@@ -45,9 +45,11 @@ TYPESAFE_API_KEY -> OPENROUTER_API_KEY -> CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCO
 ```
 
 Local daemons must answer a probe before they are selected. When several providers are usable in an
-interactive terminal, `devx` asks which one to use (`--pick` forces it, `--no-pick` keeps the
-ladder). `S1_PROVIDER=<id>` pins a backend strictly (no silent vendor switch), `S1_MODEL=<id>`
-overrides the default model.
+interactive terminal, `devx` asks which one to use and saves the choice to `.devx/provider.json`
+(gitignored), so later runs reuse it without prompting (`--change-provider` re-picks,
+`--forget-provider` clears it, `--no-save` makes a run one-off; `--no-pick` keeps the ladder).
+`S1_PROVIDER=<id>` pins a backend strictly (no silent vendor switch), `S1_MODEL=<id>` overrides the
+default model.
 
 | Command | Effect |
 | :--- | :--- |

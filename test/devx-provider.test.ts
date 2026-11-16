@@ -5,6 +5,9 @@ import path from 'node:path';
 import {
   detectCandidates,
   listProviderChoices,
+  readSavedProvider,
+  writeSavedProvider,
+  clearSavedProvider,
   loadDotEnv,
   maskSecret,
   parseDotEnv,
@@ -221,6 +224,49 @@ describe('devx provider choices', () => {
     );
     expect(choices.find((c) => c.provider === 'ollama')?.ready).toBe(true);
     expect(choices.find((c) => c.provider === 'homestead')?.ready).toBe(false);
+  });
+});
+
+describe('devx saved provider choice', () => {
+  const tmpStore = (): string =>
+    path.join(fs.mkdtempSync(path.join(os.tmpdir(), 's1sdk-store-')), '.devx', 'provider.json');
+
+  it('roundtrips the chosen provider with metadata and owner-only perms', () => {
+    const file = tmpStore();
+    writeSavedProvider(file, 'ollama', 'picker');
+
+    const saved = readSavedProvider(file);
+    expect(saved).toMatchObject({ version: 1, provider: 'ollama', savedBy: 'picker' });
+    expect(saved?.savedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+    expect(fs.readdirSync(path.dirname(file))).toEqual(['provider.json']);
+    fs.rmSync(path.dirname(path.dirname(file)), { recursive: true, force: true });
+  });
+
+  it('returns undefined for a missing store', () => {
+    expect(readSavedProvider(tmpStore())).toBeUndefined();
+  });
+
+  it('ignores corrupt JSON, unknown providers, and wrong versions', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 's1sdk-store-'));
+    const file = path.join(dir, 'provider.json');
+    fs.writeFileSync(file, '{ not json');
+    expect(readSavedProvider(file)).toBeUndefined();
+    fs.writeFileSync(file, JSON.stringify({ version: 1, provider: 'bogus' }));
+    expect(readSavedProvider(file)).toBeUndefined();
+    fs.writeFileSync(file, JSON.stringify({ version: 99, provider: 'ollama' }));
+    expect(readSavedProvider(file)).toBeUndefined();
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('clears an existing choice and reports when there was none', () => {
+    const file = tmpStore();
+    writeSavedProvider(file, 'homestead', 'flag');
+    expect(readSavedProvider(file)?.savedBy).toBe('flag');
+    expect(clearSavedProvider(file)).toBe(true);
+    expect(readSavedProvider(file)).toBeUndefined();
+    expect(clearSavedProvider(file)).toBe(false);
+    fs.rmSync(path.dirname(path.dirname(file)), { recursive: true, force: true });
   });
 });
 

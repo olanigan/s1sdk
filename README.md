@@ -79,12 +79,16 @@ The same targets exist for `just` and `make` (`just doctor`, `make smoke`, `make
 **Resolution order** (first hit wins): TypeSafe AI → OpenRouter → Cloudflare Workers AI → local
 Ollama → local Homestead. Local daemons must answer a probe before they are selected, so a stale URL
 cannot shadow a live one. When more than one provider is usable in an interactive terminal, `devx`
-asks which one to use instead of taking the first rung; `--pick` forces the prompt and `--no-pick`
-accepts the ladder. Overrides always win:
+asks which one to use instead of taking the first rung; the choice is saved to `.devx/provider.json`
+(gitignored) and reused on later runs, so you are prompted once. The saved choice is re-validated
+each run and re-prompts if that provider stops being ready. Overrides always win:
 
 ```bash
 S1_PROVIDER=ollama bun run devx smoke    # strict pin: no silent vendor switch
 bun run devx smoke --provider ollama     # same pin as a flag
+bun run devx smoke --change-provider     # ignore the saved choice and pick again
+bun run devx smoke --forget-provider     # delete the saved choice
+bun run devx smoke --no-save             # one-off pick; do not read/write the store
 S1_MODEL=jev-latest bun run devx smoke   # override the provider default model
 S1_TIMEOUT_MS=30000                      # Ollama first call loads the model
 ```

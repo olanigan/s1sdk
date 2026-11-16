@@ -12,9 +12,12 @@
  *
  * Flags: --provider <id>  --model <id>  --ticket <key>  --offline  --quiet
  *        --pick (force the provider picker)  --no-pick (always use the ladder)
+ *        --change-provider (re-pick)  --forget-provider  --no-save
  *
  * With more than one provider available, an interactive terminal is asked which
  * one to use instead of silently taking the first rung of the preference ladder.
+ * The choice is saved to `.devx/provider.json` and reused on later runs, so the
+ * prompt appears once (or again only after the saved provider stops being ready).
  * `--provider`, `S1_PROVIDER`, and `--no-pick` all bypass that prompt.
  *
  * Nothing here is required to use the SDK; it exists so a fresh clone needs one
@@ -32,6 +35,9 @@ import {
   resolveProvider,
   describeResolution,
   listProviderChoices,
+  readSavedProvider,
+  writeSavedProvider,
+  clearSavedProvider,
   maskSecret,
   probeEndpoint,
   toBaseUrl,
@@ -54,6 +60,9 @@ interface CliArgs {
   offline: boolean;
   quiet: boolean;
   pick?: boolean;
+  changeProvider: boolean;
+  forgetProvider: boolean;
+  noSave: boolean;
   passthrough: string[];
 }
 
@@ -63,6 +72,9 @@ function parseCli(argv: readonly string[]): CliArgs {
     ticket: 'doubleBillingAngry',
     offline: false,
     quiet: false,
+    changeProvider: false,
+    forgetProvider: false,
+    noSave: false,
     passthrough: []
   };
   const rest: string[] = [];
@@ -75,6 +87,9 @@ function parseCli(argv: readonly string[]): CliArgs {
     else if (arg === '--quiet' || arg === '-q') args.quiet = true;
     else if (arg === '--pick' || arg === '--select') args.pick = true;
     else if (arg === '--no-pick' || arg === '--auto') args.pick = false;
+    else if (arg === '--change-provider' || arg === '--re-pick') args.changeProvider = true;
+    else if (arg === '--forget-provider') args.forgetProvider = true;
+    else if (arg === '--no-save') args.noSave = true;
     else if (arg.startsWith('-')) args.passthrough.push(arg);
     else rest.push(arg);
   }
@@ -356,6 +371,19 @@ function isInteractive(): boolean {
   return Boolean(process.stdin.isTTY && process.stdout.isTTY);
 }
 
+/** Where the chosen provider is remembered. Override with S1_DEVX_PROVIDER_FILE. */
+function providerStorePath(): string {
+  return (
+    process.env.S1_DEVX_PROVIDER_FILE?.trim() ||
+    path.join(REPO_ROOT, '.devx', 'provider.json')
+  );
+}
+
+async function providerIsReady(provider: DevxProviderId, offline: boolean): Promise<boolean> {
+  const choices = await listProviderChoices(process.env, { probe: !offline });
+  return choices.some((choice) => choice.provider === provider && choice.ready);
+}
+
 /** Numbered prompt over the ready providers. Returns undefined on cancel/EOF. */
 async function promptForProvider(choices: readonly ProviderChoice[]): Promise<DevxProviderId | undefined> {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
@@ -396,6 +424,11 @@ async function promptForProvider(choices: readonly ProviderChoice[]): Promise<De
  * explicit `--provider`/`S1_PROVIDER`, a non-interactive terminal, `--no-pick`,
  * or nothing usable to choose from). When it returns a provider the caller
  * treats it as a strict pin so exactly the chosen backend is used.
+ *
+ * The choice is persisted, so the prompt only appears on the first run (or when
+ * the saved provider is no longer ready). `--change-provider` forces a re-pick,
+ * `--forget-provider` clears the saved choice, and `--no-save` keeps a run
+ * one-off. `S1_DEVX_NO_PERSIST=1` disables reading and writing the store.
  */
 async function pickProvider(args: CliArgs): Promise<DevxProviderId | undefined> {
   if (args.provider) return undefined;
@@ -405,7 +438,30 @@ async function pickProvider(args: CliArgs): Promise<DevxProviderId | undefined> 
 
   const pinned = (env.S1_PROVIDER ?? '').trim().toLowerCase();
   if (pinned && pinned !== 'auto') return undefined;
+
+  const store = providerStorePath();
+  if (args.forgetProvider) {
+    if (clearSavedProvider(store)) {
+      const shown = path.relative(REPO_ROOT, store);
+      console.log(dim(`  cleared saved provider (${shown.startsWith('..') ? store : shown})`));
+    } else {
+      console.log(dim('  no saved provider to clear'));
+    }
+  }
+
   if (args.pick === false) return undefined;
+
+  const persist = !args.noSave && env.S1_DEVX_NO_PERSIST !== '1';
+  if (persist && !args.changeProvider && !args.forgetProvider) {
+    const saved = readSavedProvider(store);
+    if (saved) {
+      if (await providerIsReady(saved.provider, args.offline)) {
+        console.log(dim(`  using saved provider: ${saved.provider} (change with --change-provider)`));
+        return saved.provider;
+      }
+      console.log(yellow(`  saved provider "${saved.provider}" is no longer ready; ignoring saved choice`));
+    }
+  }
 
   const forced = args.pick === true;
   const canPrompt = isInteractive();
@@ -421,10 +477,15 @@ async function pickProvider(args: CliArgs): Promise<DevxProviderId | undefined> 
     if (forced) console.log(yellow('  no provider is ready to select; trying the ladder'));
     return undefined;
   }
-  // One usable provider is not a choice; take it without asking.
-  if (ready.length === 1 && !forced) return ready[0]?.provider;
 
-  return promptForProvider(ready);
+  // One usable provider is not a choice; take it without asking.
+  const picked =
+    ready.length === 1 && !forced ? ready[0]?.provider : await promptForProvider(ready);
+
+  if (picked && persist) {
+    writeSavedProvider(store, picked, forced ? 'flag' : 'picker');
+  }
+  return picked;
 }
 
 // ==========================================
@@ -448,12 +509,16 @@ function usage(): void {
   --ticket, -t <key>    ticket fixture for smoke (default: doubleBillingAngry)
   --pick, --select      force the provider picker (interactive terminals)
   --no-pick, --auto     skip the picker and use the preference ladder
+  --change-provider     ignore the saved provider and pick again
+  --forget-provider     delete the saved provider choice
+  --no-save             pick for this run only; do not read or write the store
   --offline             skip local daemon probes
   --quiet, -q           minimal output
 
 environments: TYPESAFE_API_KEY, OPENROUTER_API_KEY,
   CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID,
-  OLLAMA_HOST, HOMESTEAD_API_URL, S1_PROVIDER, S1_MODEL, S1_TIMEOUT_MS`);
+  OLLAMA_HOST, HOMESTEAD_API_URL, S1_PROVIDER, S1_MODEL, S1_TIMEOUT_MS,
+  S1_DEVX_PROVIDER_FILE (saved choice path), S1_DEVX_NO_PERSIST=1`);
 }
 
 async function main(): Promise<void> {

@@ -376,7 +376,94 @@ export async function listProviderChoices(
 }
 
 // ==========================================
-// 5. Resolution
+// 5. Persisted choice
+// ==========================================
+
+const SAVED_PROVIDER_VERSION = 1;
+const KNOWN_PROVIDERS: readonly DevxProviderId[] = [
+  'typesafe',
+  'openrouter',
+  'cloudflare',
+  'ollama',
+  'homestead'
+];
+
+export type SavedProviderSource = 'picker' | 'flag';
+
+/**
+ * The provider a developer chose, persisted so later runs do not re-prompt.
+ * Never stores credentials — only the provider id and provenance metadata.
+ */
+export interface SavedProvider {
+  readonly version: typeof SAVED_PROVIDER_VERSION;
+  readonly provider: DevxProviderId;
+  readonly savedAt: string;
+  readonly savedBy: SavedProviderSource;
+}
+
+function isDevxProviderId(value: unknown): value is DevxProviderId {
+  return typeof value === 'string' && (KNOWN_PROVIDERS as readonly string[]).includes(value);
+}
+
+/** Reads and validates the saved choice. Missing/corrupt/unknown -> undefined. */
+export function readSavedProvider(file: string): SavedProvider | undefined {
+  let raw: string;
+  try {
+    raw = fs.readFileSync(file, 'utf8');
+  } catch {
+    return undefined;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+  if (typeof parsed !== 'object' || parsed === null) return undefined;
+
+  const record = parsed as Record<string, unknown>;
+  if (record.version !== SAVED_PROVIDER_VERSION) return undefined;
+  if (!isDevxProviderId(record.provider)) return undefined;
+
+  return {
+    version: SAVED_PROVIDER_VERSION,
+    provider: record.provider,
+    savedAt: typeof record.savedAt === 'string' ? record.savedAt : '',
+    savedBy: record.savedBy === 'flag' ? 'flag' : 'picker'
+  };
+}
+
+/** Atomically writes the choice (temp file + rename) with owner-only perms. */
+export function writeSavedProvider(
+  file: string,
+  provider: DevxProviderId,
+  savedBy: SavedProviderSource = 'picker'
+): void {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const payload: SavedProvider = {
+    version: SAVED_PROVIDER_VERSION,
+    provider,
+    savedAt: new Date().toISOString(),
+    savedBy
+  };
+  const tmp = `${file}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, `${JSON.stringify(payload, null, 2)}\n`, { mode: 0o600 });
+  fs.renameSync(tmp, file);
+}
+
+/** Removes the saved choice. Returns false when there was nothing to remove. */
+export function clearSavedProvider(file: string): boolean {
+  try {
+    fs.unlinkSync(file);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// ==========================================
+// 6. Resolution
 // ==========================================
 
 function normalizeProviderId(value: string | undefined): DevxProviderId | 'auto' | undefined {

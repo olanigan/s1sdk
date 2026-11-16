@@ -10,9 +10,13 @@ minor versions and are called out under **Changed**.
 
 - **`devx` provider picker**: when more than one provider is usable in an interactive terminal,
   `devx` now asks which one to run against instead of silently taking the first rung of the
-  preference ladder. `--pick`/`--select` forces the prompt, `--no-pick`/`--auto` keeps the ladder,
-  and `--provider`/`S1_PROVIDER` still bypass it as a strict pin. Backed by a new
-  `listProviderChoices()` resolver helper that reports each candidate's readiness.
+  preference ladder. The choice is persisted to `.devx/provider.json` (gitignored, provider id only,
+  no credentials) and reused on later runs; the prompt returns only on first run or after the saved
+  provider stops being ready. `--change-provider`/`--re-pick` forces a new choice,
+  `--forget-provider` clears it, `--no-save` keeps a run one-off, `--pick`/`--select` forces the
+  prompt, `--no-pick`/`--auto` keeps the ladder, and `--provider`/`S1_PROVIDER` still bypass it as a
+  strict pin. Backed by new `listProviderChoices()`, `readSavedProvider()`, `writeSavedProvider()`,
+  and `clearSavedProvider()` resolver helpers.
 
 ## [0.1.1] — 2026-10-30
 
