@@ -48,12 +48,13 @@ Local daemons must answer a probe before they are selected. When several provide
 interactive terminal, `devx` asks which one to use and saves the choice to `.devx/provider.json`
 (gitignored), so later runs reuse it without prompting (`--change-provider` re-picks,
 `--forget-provider` clears it, `--no-save` makes a run one-off; `--no-pick` keeps the ladder).
-`S1_PROVIDER=<id>` pins a backend strictly (no silent vendor switch), `S1_MODEL=<id>` overrides the
-default model.
+`devx doctor` never prompts; `q` at the prompt keeps the ladder, while Ctrl-C/Ctrl-D abort with
+exit 130 before any decision runs. `S1_PROVIDER=<id>` pins a backend strictly (no silent vendor
+switch), `S1_MODEL=<id>` overrides the default model.
 
 | Command | Effect |
 | :--- | :--- |
-| `bun run devx doctor` | credentials present, daemons up, resolution result |
+| `bun run devx doctor` | credentials present, daemons up, resolution result (never prompts) |
 | `bun run devx smoke` | one real decision + latency + token counts |
 | `bun run devx examples` | list runnable examples |
 | `bun run devx examples 0` | run one example through the resolver |

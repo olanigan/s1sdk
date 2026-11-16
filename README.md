@@ -66,7 +66,7 @@ resolution
 | Command | What it does |
 | :--- | :--- |
 | `bun run devx` | doctor + smoke |
-| `bun run devx doctor` | credentials, daemons, probe results, and the provider that wins |
+| `bun run devx doctor` | credentials, daemons, probe results, and the provider that wins (never prompts) |
 | `bun run devx smoke` | one real decision with reported latency, wall-clock and token counts |
 | `bun run devx example 0` | provider-agnostic quickstart |
 | `bun run devx examples` | list examples; pick one with `examples <id>` or run all with `examples all` |
@@ -81,7 +81,9 @@ Ollama → local Homestead. Local daemons must answer a probe before they are se
 cannot shadow a live one. When more than one provider is usable in an interactive terminal, `devx`
 asks which one to use instead of taking the first rung; the choice is saved to `.devx/provider.json`
 (gitignored) and reused on later runs, so you are prompted once. The saved choice is re-validated
-each run and re-prompts if that provider stops being ready. Overrides always win:
+each run and re-prompts if that provider stops being ready. `devx doctor` is a passive diagnostic
+and never prompts. At the prompt, `q` keeps the preference ladder; Ctrl-C/Ctrl-D abort the command
+with exit 130 before any decision runs. Overrides always win:
 
 ```bash
 S1_PROVIDER=ollama bun run devx smoke    # strict pin: no silent vendor switch
