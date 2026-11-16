@@ -310,6 +310,71 @@ export async function probeEndpoint(
   return false;
 }
 
+/**
+ * A provider the developer can explicitly choose, with enough detail for an
+ * interactive picker. `ready` means "safe to select now": hosted providers have
+ * their credential, local daemons answered (or were configured explicitly when
+ * probing is disabled).
+ */
+export interface ProviderChoice {
+  readonly provider: DevxProviderId;
+  readonly ready: boolean;
+  readonly detail: string;
+}
+
+/**
+ * Lists every candidate provider in ladder order and resolves whether it is
+ * usable right now. Pure detection plus optional probes; never throws.
+ *
+ * Unlike `resolveProvider` this does not stop at the first hit — the point is to
+ * let a human choose instead of accepting the ladder default.
+ */
+export async function listProviderChoices(
+  env: DevxEnv = process.env,
+  options: {
+    readonly probe?: boolean;
+    readonly probeTimeoutMs?: number;
+    readonly fetchImpl?: typeof fetch;
+    readonly binding?: CloudflareAiBinding;
+  } = {}
+): Promise<ProviderChoice[]> {
+  const candidates = detectCandidates(env, { binding: options.binding });
+  const shouldProbe = options.probe ?? true;
+  const choices: ProviderChoice[] = [];
+
+  for (const candidate of candidates) {
+    const probeUrls = candidate.probeUrls ?? [];
+    if (probeUrls.length === 0) {
+      // Hosted provider: reaching here means its credentials are present.
+      choices.push({ provider: candidate.provider, ready: true, detail: candidate.credential });
+      continue;
+    }
+
+    const base = probeUrls[0] ?? '';
+    if (!shouldProbe) {
+      const configured = candidate.source === 'env';
+      choices.push({
+        provider: candidate.provider,
+        ready: configured,
+        detail: configured ? `configured ${base} (unprobed)` : `not configured (${base} unprobed)`
+      });
+      continue;
+    }
+
+    const alive = await probeEndpoint(base, {
+      timeoutMs: options.probeTimeoutMs,
+      fetchImpl: options.fetchImpl
+    });
+    choices.push({
+      provider: candidate.provider,
+      ready: alive,
+      detail: alive ? `up at ${base}` : `down at ${base}${candidate.source === 'env' ? ' (configured)' : ''}`
+    });
+  }
+
+  return choices;
+}
+
 // ==========================================
 // 5. Resolution
 // ==========================================

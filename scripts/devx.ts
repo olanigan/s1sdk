@@ -11,6 +11,11 @@
  *   bun run devx examples all    run every provider-agnostic example in order
  *
  * Flags: --provider <id>  --model <id>  --ticket <key>  --offline  --quiet
+ *        --pick (force the provider picker)  --no-pick (always use the ladder)
+ *
+ * With more than one provider available, an interactive terminal is asked which
+ * one to use instead of silently taking the first rung of the preference ladder.
+ * `--provider`, `S1_PROVIDER`, and `--no-pick` all bypass that prompt.
  *
  * Nothing here is required to use the SDK; it exists so a fresh clone needs one
  * command and one credential instead of a per-example checklist.
@@ -19,17 +24,20 @@
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { createInterface } from 'node:readline/promises';
 import { fileURLToPath } from 'node:url';
 import { S1Client } from '../src/index.js';
 import {
   loadDotEnv,
   resolveProvider,
   describeResolution,
+  listProviderChoices,
   maskSecret,
   probeEndpoint,
   toBaseUrl,
   DevxConfigError,
   type DevxProviderId,
+  type ProviderChoice,
   type ResolvedProvider
 } from '../examples/shared/provider.js';
 import { customerServiceQuestions, sampleTickets } from '../examples/shared/customer-service-schema.js';
@@ -45,6 +53,7 @@ interface CliArgs {
   ticket: string;
   offline: boolean;
   quiet: boolean;
+  pick?: boolean;
   passthrough: string[];
 }
 
@@ -64,6 +73,8 @@ function parseCli(argv: readonly string[]): CliArgs {
     else if (arg === '--ticket' || arg === '-t') args.ticket = argv[++i] as string;
     else if (arg === '--offline') args.offline = true;
     else if (arg === '--quiet' || arg === '-q') args.quiet = true;
+    else if (arg === '--pick' || arg === '--select') args.pick = true;
+    else if (arg === '--no-pick' || arg === '--auto') args.pick = false;
     else if (arg.startsWith('-')) args.passthrough.push(arg);
     else rest.push(arg);
   }
@@ -338,6 +349,85 @@ function listExamples(): void {
 }
 
 // ==========================================
+// provider picker
+// ==========================================
+
+function isInteractive(): boolean {
+  return Boolean(process.stdin.isTTY && process.stdout.isTTY);
+}
+
+/** Numbered prompt over the ready providers. Returns undefined on cancel/EOF. */
+async function promptForProvider(choices: readonly ProviderChoice[]): Promise<DevxProviderId | undefined> {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    section('choose a provider');
+    choices.forEach((choice, index) => {
+      console.log(
+        `  ${String(index + 1).padStart(2)}  ${bold(choice.provider.padEnd(10))} ${dim(choice.detail)}`
+      );
+    });
+    const hint = dim('(enter = 1, q = keep the ladder default)');
+    for (;;) {
+      let answer: string;
+      try {
+        answer = (await rl.question(`\nselect [1-${choices.length}] ${hint}: `)).trim();
+      } catch {
+        return undefined;
+      }
+      if (answer === '') return choices[0]?.provider;
+      if (answer === 'q' || answer === 'quit') return undefined;
+      const byNumber = Number(answer);
+      if (Number.isInteger(byNumber) && byNumber >= 1 && byNumber <= choices.length) {
+        return choices[byNumber - 1]?.provider;
+      }
+      const byName = choices.find((choice) => choice.provider === answer.toLowerCase());
+      if (byName) return byName.provider;
+      console.log(yellow(`  not a valid choice: ${answer}`));
+    }
+  } finally {
+    rl.close();
+  }
+}
+
+/**
+ * Resolves the provider the human wants before the command runs.
+ *
+ * Returns undefined when the caller should keep the existing resolution (an
+ * explicit `--provider`/`S1_PROVIDER`, a non-interactive terminal, `--no-pick`,
+ * or nothing usable to choose from). When it returns a provider the caller
+ * treats it as a strict pin so exactly the chosen backend is used.
+ */
+async function pickProvider(args: CliArgs): Promise<DevxProviderId | undefined> {
+  if (args.provider) return undefined;
+
+  const env = process.env;
+  loadDotEnv(REPO_ROOT, env);
+
+  const pinned = (env.S1_PROVIDER ?? '').trim().toLowerCase();
+  if (pinned && pinned !== 'auto') return undefined;
+  if (args.pick === false) return undefined;
+
+  const forced = args.pick === true;
+  const canPrompt = isInteractive();
+  if (forced && !canPrompt) {
+    console.log(dim('  --pick ignored: not an interactive terminal'));
+    return undefined;
+  }
+  if (!forced && !canPrompt) return undefined;
+
+  const choices = await listProviderChoices(env, { probe: !args.offline });
+  const ready = choices.filter((choice) => choice.ready);
+  if (ready.length === 0) {
+    if (forced) console.log(yellow('  no provider is ready to select; trying the ladder'));
+    return undefined;
+  }
+  // One usable provider is not a choice; take it without asking.
+  if (ready.length === 1 && !forced) return ready[0]?.provider;
+
+  return promptForProvider(ready);
+}
+
+// ==========================================
 // main
 // ==========================================
 
@@ -356,6 +446,8 @@ function usage(): void {
   --provider, -p <id>   typesafe | openrouter | cloudflare | ollama | homestead
   --model, -m <id>      override the provider default model
   --ticket, -t <key>    ticket fixture for smoke (default: doubleBillingAngry)
+  --pick, --select      force the provider picker (interactive terminals)
+  --no-pick, --auto     skip the picker and use the preference ladder
   --offline             skip local daemon probes
   --quiet, -q           minimal output
 
@@ -366,6 +458,16 @@ environments: TYPESAFE_API_KEY, OPENROUTER_API_KEY,
 
 async function main(): Promise<void> {
   const args = parseCli(process.argv.slice(2));
+  const runsProvider =
+    args.command === 'all' ||
+    args.command === 'doctor' ||
+    args.command === 'smoke' ||
+    (args.command === 'example' && Boolean(args.target)) ||
+    (args.command === 'examples' && Boolean(args.target));
+  if (runsProvider && !args.provider) {
+    const picked = await pickProvider(args);
+    if (picked) args.provider = picked;
+  }
   switch (args.command) {
     case 'doctor':
       await doctor(args);

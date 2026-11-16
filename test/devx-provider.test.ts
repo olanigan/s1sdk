@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   detectCandidates,
+  listProviderChoices,
   loadDotEnv,
   maskSecret,
   parseDotEnv,
@@ -178,6 +179,48 @@ describe('devx resolution', () => {
     });
     expect(resolved.provider).toBe('ollama');
     expect(resolved.source).toBe('env');
+  });
+});
+
+describe('devx provider choices', () => {
+  it('marks credentialed hosted providers ready without probing', async () => {
+    const choices = await listProviderChoices(
+      { TYPESAFE_API_KEY: 'ts-1', OPENROUTER_API_KEY: 'sk-or-1' },
+      NO_LOCAL_PROBE
+    );
+    expect(choices.map((choice) => choice.provider)).toEqual([
+      'typesafe',
+      'openrouter',
+      'ollama',
+      'homestead'
+    ]);
+    expect(choices.find((c) => c.provider === 'typesafe')?.ready).toBe(true);
+    expect(choices.find((c) => c.provider === 'ollama')?.ready).toBe(false);
+  });
+
+  it('marks a configured daemon ready offline and an unconfigured one not', async () => {
+    const choices = await listProviderChoices({ HOMESTEAD_API_URL: '127.0.0.1:8080' }, NO_LOCAL_PROBE);
+    const homestead = choices.find((c) => c.provider === 'homestead');
+    const ollama = choices.find((c) => c.provider === 'ollama');
+    expect(homestead?.ready).toBe(true);
+    expect(homestead?.detail).toMatch(/configured/);
+    expect(ollama?.ready).toBe(false);
+  });
+
+  it('marks a daemon ready only when it answers the probe', async () => {
+    const choices = await listProviderChoices(
+      { OLLAMA_HOST: '127.0.0.1:11434' },
+      {
+        fetchImpl: (async (input: string | URL | Request) => {
+          if (String(input).startsWith('http://127.0.0.1:11434')) {
+            return new Response('Ollama is running', { status: 200 });
+          }
+          throw new Error('ECONNREFUSED');
+        }) as unknown as typeof fetch
+      }
+    );
+    expect(choices.find((c) => c.provider === 'ollama')?.ready).toBe(true);
+    expect(choices.find((c) => c.provider === 'homestead')?.ready).toBe(false);
   });
 });
 

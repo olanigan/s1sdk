@@ -44,8 +44,10 @@ TYPESAFE_API_KEY -> OPENROUTER_API_KEY -> CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCO
                  -> local Ollama (127.0.0.1:11434) -> local Homestead (127.0.0.1:8080)
 ```
 
-Local daemons must answer a probe before they are selected. `S1_PROVIDER=<id>` pins a backend
-strictly (no silent vendor switch), `S1_MODEL=<id>` overrides the default model.
+Local daemons must answer a probe before they are selected. When several providers are usable in an
+interactive terminal, `devx` asks which one to use (`--pick` forces it, `--no-pick` keeps the
+ladder). `S1_PROVIDER=<id>` pins a backend strictly (no silent vendor switch), `S1_MODEL=<id>`
+overrides the default model.
 
 | Command | Effect |
 | :--- | :--- |

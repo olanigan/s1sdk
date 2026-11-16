@@ -4,6 +4,16 @@ All notable changes to `s1sdk`. Format follows [Keep a Changelog](https://keepac
 versions follow [SemVer](https://semver.org/). While the package is `0.x`, breaking changes ship in
 minor versions and are called out under **Changed**.
 
+## [Unreleased]
+
+### Added
+
+- **`devx` provider picker**: when more than one provider is usable in an interactive terminal,
+  `devx` now asks which one to run against instead of silently taking the first rung of the
+  preference ladder. `--pick`/`--select` forces the prompt, `--no-pick`/`--auto` keeps the ladder,
+  and `--provider`/`S1_PROVIDER` still bypass it as a strict pin. Backed by a new
+  `listProviderChoices()` resolver helper that reports each candidate's readiness.
+
 ## [0.1.1] — 2026-10-30
 
 Experimental developer preview. Wire specs and model identifiers may still change.
