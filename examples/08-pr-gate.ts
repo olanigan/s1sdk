@@ -40,6 +40,7 @@ import {
   type PrMetadata
 } from './shared/pr-state.js';
 import {
+  DEFAULT_TAU,
   PR_GATE_QUESTION_DEFS,
   interpretPrGate,
   renderPrGateReceipt,
@@ -60,6 +61,7 @@ interface CliArgs {
   jsonFile?: string;
   summary?: string;
   failOn: 'none' | 'pass' | 'review' | 'hold';
+  tau: number;
   stub: boolean;
   provider?: string;
   model?: string;
@@ -81,6 +83,7 @@ function parseCli(argv: readonly string[]): CliArgs {
       'json-file': { type: 'string' },
       summary: { type: 'string' },
       'fail-on': { type: 'string', default: 'none' },
+      tau: { type: 'string' },
       stub: { type: 'boolean', default: false },
       provider: { type: 'string' },
       model: { type: 'string' },
@@ -94,7 +97,13 @@ function parseCli(argv: readonly string[]): CliArgs {
     throw new Error(`--fail-on must be one of none|pass|review|hold (got "${failOn}")`);
   }
 
+  const tau = values.tau === undefined ? DEFAULT_TAU : Number(values.tau);
+  if (!Number.isFinite(tau) || tau < 0 || tau > 1) {
+    throw new Error(`--tau must be a number between 0 and 1 (got "${values.tau}")`);
+  }
+
   return {
+    tau,
     ...(values.base ? { base: String(values.base) } : {}),
     head: String(values.head ?? 'HEAD'),
     ...(values.diff ? { diff: String(values.diff) } : {}),
@@ -202,7 +211,7 @@ async function main(): Promise<void> {
     questions: PR_GATE_QUESTION_DEFS
   });
 
-  const receipt = interpretPrGate(state, decision);
+  const receipt = interpretPrGate(state, decision, { tau: args.tau });
 
   if (args.json) {
     process.stdout.write(`${JSON.stringify(receipt, null, 2)}\n`);
@@ -258,7 +267,8 @@ async function createClient(
   };
 }
 
-const VERDICT_RANK: Record<string, number> = { pass: 0, review: 1, hold: 2 };
+// `escalate` needs a human, so it fails the same gates as `review`.
+const VERDICT_RANK: Record<string, number> = { pass: 0, review: 1, escalate: 1, hold: 2 };
 
 function exitCodeFor(receipt: PrGateReceipt, failOn: CliArgs['failOn']): number {
   if (failOn === 'none') return 0;

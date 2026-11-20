@@ -73,7 +73,18 @@ const POLICY_QUESTION_KEYS: Record<PolicyId, string> = {
   protected_infra: 'affects_protected_infra'
 };
 
-export type PrGateVerdict = 'pass' | 'review' | 'hold';
+/**
+ * `escalate` means the gate is not confident enough to give a verdict. A human
+ * (or a stronger reviewer) decides. It is never a pass.
+ */
+export type PrGateVerdict = 'pass' | 'review' | 'hold' | 'escalate';
+
+/**
+ * Default confidence threshold. Below it, a would-be pass or review becomes
+ * `escalate`. Overridable per run with `--tau`. A `hold` is never softened by
+ * confidence: a confirmed secret stays a hold.
+ */
+export const DEFAULT_TAU = 0.6;
 
 export interface PrGatePolicyResult {
   id: PolicyId;
@@ -112,6 +123,15 @@ export interface PrGateReceipt {
       confidence: number;
     };
     policies: PrGatePolicyResult[];
+    /** Confidence of the answers that drive the verdict: the lower of change type and risk. */
+    confidence: {
+      overall: number;
+      tau: number;
+      escalated: boolean;
+      /** The verdict the signals support before the confidence check. */
+      baseVerdict: PrGateVerdict;
+      reasons: string[];
+    };
   };
   telemetry: {
     provider: string;
@@ -142,8 +162,10 @@ function round(value: number, digits = 3): number {
  */
 export function interpretPrGate(
   state: PrState,
-  decision: JevDecisionResponse<Record<string, JevQuestion>>
+  decision: JevDecisionResponse<Record<string, JevQuestion>>,
+  options: { tau?: number } = {}
 ): PrGateReceipt {
+  const tau = options.tau ?? DEFAULT_TAU;
   const answers = asRecord(decision.answers);
   const changeAnswer = asRecord(answers[PR_GATE_QUESTIONS.change_type]);
   const riskAnswer = asRecord(answers[PR_GATE_QUESTIONS.risk_level]);
@@ -187,8 +209,21 @@ export function interpretPrGate(
 
   // Advisory by construction: a high score or a confirmed policy hit asks for a
   // human, it does not claim to have reviewed the code.
-  const verdict: PrGateVerdict =
+  const baseVerdict: PrGateVerdict =
     riskScore >= 5 || hardPolicy ? 'hold' : riskScore >= 3 || softPolicy ? 'review' : 'pass';
+
+  // Calibration: a verdict the gate is unsure of becomes an escalation. A hold
+  // stands regardless of confidence, because a confirmed hit is not softened.
+  const overall = Math.min(changeConfidence, riskConfidence);
+  const escalated = baseVerdict !== 'hold' && overall < tau;
+  const verdict: PrGateVerdict = escalated ? 'escalate' : baseVerdict;
+  const reasons: string[] = [];
+  if (riskConfidence < tau) {
+    reasons.push(`risk confidence ${round(riskConfidence)} is below tau ${tau}`);
+  }
+  if (changeConfidence < tau) {
+    reasons.push(`change-type confidence ${round(changeConfidence)} is below tau ${tau}`);
+  }
 
   return {
     schema: 's1sdk.pr-gate/v1',
@@ -215,7 +250,14 @@ export function interpretPrGate(
         )
       },
       risk: { score: riskScore, confidence: round(riskConfidence) },
-      policies
+      policies,
+      confidence: {
+        overall: round(overall),
+        tau,
+        escalated,
+        baseVerdict,
+        reasons
+      }
     },
     telemetry: {
       provider: decision.providerUsed,
@@ -260,6 +302,13 @@ export function renderPrGateReceipt(receipt: PrGateReceipt): string {
   lines.push(
     ` Risk:     ${receipt.decision.risk.score}/5 (${(receipt.decision.risk.confidence * 100).toFixed(1)}% confidence)`
   );
+  if (receipt.decision.confidence.escalated) {
+    lines.push(
+      ` ESCALATE: confidence ${receipt.decision.confidence.overall} is below tau ${receipt.decision.confidence.tau}; ` +
+        `signals support ${receipt.decision.confidence.baseVerdict}. A human decides.`
+    );
+    for (const reason of receipt.decision.confidence.reasons) lines.push(`   - ${reason}`);
+  }
   lines.push('-'.repeat(72));
   lines.push(' Policies (deterministic pre-filter + model probability):');
   for (const policy of receipt.decision.policies) {
@@ -314,7 +363,17 @@ export function renderPrGateSummary(receipt: PrGateReceipt): string {
   lines.push(
     `| Risk | ${receipt.decision.risk.score}/5 (${(receipt.decision.risk.confidence * 100).toFixed(1)}%) |`
   );
+  lines.push(
+    `| Confidence | ${(receipt.decision.confidence.overall * 100).toFixed(1)}% (τ ${(receipt.decision.confidence.tau * 100).toFixed(0)}%) |`
+  );
   lines.push('');
+  if (receipt.decision.confidence.escalated) {
+    lines.push(
+      `> **Escalated.** The signals support \`${receipt.decision.confidence.baseVerdict}\`, but confidence is below τ, so the gate does not give a verdict. A human decides.`
+    );
+    for (const reason of receipt.decision.confidence.reasons) lines.push(`> - ${reason}`);
+    lines.push('');
+  }
   lines.push('### Policies');
   lines.push('');
   lines.push('| Policy | Deterministic | Model p | Result |');
